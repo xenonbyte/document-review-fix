@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.2 - 2026-07-11
+
+Hardens git status parsing, mutation-lock crash recovery, ledger merges, install rollback, and state target-identity checks.
+
+### Fixed
+
+- **NUL-terminated `git status` parsing.** The target-only guard parses `git status --porcelain=v1 -z` instead of splitting on newlines, so paths containing spaces, newlines, or quotes are handled correctly; a missing NUL terminator is rejected and the now-unneeded C-quote branch is dropped (`lib/fix-guard.js`).
+- **Mutation lock survives a crashed holder.** The `mkdir`/`rmdir` mutation mutex is replaced with a leased mutex plus an expiry-based takeover/recovery protocol, so a crashed process no longer deadlocks all future lock operations; malformed mutex metadata reports `corrupt-lock` instead of a permanent `lock-held` (`lib/lock.js`).
+- **Snapshot and file-set guards track and restore file mode.** Permission bits join snapshot, monitor, and file-set baseline fingerprints and are restored via `chmod` on rollback; mode is compared only when both sides carry it, and baselines written before mode tracking are tolerated on read (a missing mode skips `chmod`, a present-but-invalid mode stays corrupt) (`lib/snapshot-guard.js`, `lib/workflow/helpers.js`).
+- **Ledger merges are canonicalized and severity-safe.** Triage merge graphs canonicalize transitive merges with cycle detection, the surviving issue retains the highest blocking severity, duplicate issue ids are rejected, severities are validated on parse, and stale accepted-non-blocking-low ids are dropped (`lib/ledger.js`).
+- **Install rollback preserves a pre-existing capability descriptor.** A failed install now backs up and restores the descriptor instead of unlinking it, removes a partial target before restoring the displaced original, and keeps a committed directory swap when only post-swap cleanup fails; uninstall verifies the manifest platform and the canonical descriptor path (`lib/install.js`, `lib/manifest.js`).
+
+### Changed
+
+- **State commands re-derive and cross-check target identity.** Document, file-set, and r2p state resolution re-derives the target key from the manifest and rejects a mismatch, hardening against a state directory pointed at the wrong target (`lib/workflow/helpers.js`, `lib/lock.js`).
+
 ## 0.10.1 - 2026-07-02
 
 Hardens install rollback, workflow output redaction, and file-set unit-review freshness.
