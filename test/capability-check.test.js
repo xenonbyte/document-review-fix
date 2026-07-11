@@ -1171,6 +1171,106 @@ test('uninstall validates unsafe capability descriptor before deleting routes', 
   assert.equal(readInstallManifest('claude', { homeDir }).missing, false);
 });
 
+test('uninstall rejects a manifest descriptor outside the exact current-platform path before deleting routes', async (t) => {
+  const { homeDir, cwd, platformRoots } = makeCommandSandbox(t);
+  const route = path.join(platformRoots.claude, 'review-fix-spec.md');
+  const victim = path.join(homeDir, 'keep-me.json');
+  fs.writeFileSync(route, '# generated command\n');
+  fs.writeFileSync(victim, '{"user":true}\n');
+
+  const manifest = makeManifest({
+    homeDir,
+    platformRoots: {
+      claude: path.dirname(platformRoots.claude),
+      codex: path.dirname(platformRoots.codexSkills),
+      gemini: path.dirname(platformRoots.gemini)
+    },
+    generated: [{ path: route, kind: 'file', action: 'created', checksum: 'a'.repeat(64) }],
+    allowedRoots: [fs.realpathSync.native(platformRoots.claude)]
+  });
+  manifest.capabilityDescriptor.path = victim;
+  writeInstallManifest(manifest, { homeDir });
+
+  await assert.rejects(
+    () => uninstallPlatform('claude', { homeDir, platformRoots, cwd, packageVersion: PACKAGE_VERSION }),
+    /capability descriptor.*exact|current platform|canonical/i
+  );
+
+  assert.equal(fs.readFileSync(victim, 'utf8'), '{"user":true}\n');
+  assert.equal(fs.existsSync(route), true);
+  assert.equal(readInstallManifest('claude', { homeDir }).missing, false);
+});
+
+test('uninstall binds a manifest platform to the requested platform before deleting artifacts', async (t) => {
+  const { homeDir, cwd, platformRoots } = makeCommandSandbox(t);
+  const route = path.join(platformRoots.codexPrompts, 'review-fix-spec.md');
+  const descriptor = path.join(homeDir, '.drfx', 'capabilities', 'codex.json');
+  const routeContent = '# codex generated prompt\n';
+  fs.writeFileSync(route, routeContent);
+  fs.mkdirSync(path.dirname(descriptor), { recursive: true });
+  fs.writeFileSync(descriptor, '{"platform":"codex"}\n');
+
+  const manifestRoots = {
+    claude: path.dirname(platformRoots.claude),
+    codex: path.dirname(platformRoots.codexSkills),
+    gemini: path.dirname(platformRoots.gemini)
+  };
+  const tampered = makeManifest({
+    homeDir,
+    platformRoots: manifestRoots,
+    platform: 'codex',
+    generated: [{
+      path: route,
+      kind: 'file',
+      action: 'created',
+      checksum: crypto.createHash('sha256').update(routeContent).digest('hex')
+    }],
+    allowedRoots: [fs.realpathSync.native(path.dirname(platformRoots.codexPrompts))]
+  });
+  const claudeManifestPath = manifestPathForPlatform('claude', { homeDir });
+  fs.mkdirSync(path.dirname(claudeManifestPath), { recursive: true });
+  fs.writeFileSync(claudeManifestPath, serializeManifest(tampered));
+
+  await assert.rejects(
+    () => uninstallPlatform('claude', { homeDir, platformRoots, cwd, packageVersion: PACKAGE_VERSION }),
+    /manifest platform|requested platform|platform mismatch/i
+  );
+
+  assert.equal(fs.readFileSync(route, 'utf8'), routeContent);
+  assert.equal(fs.readFileSync(descriptor, 'utf8'), '{"platform":"codex"}\n');
+  assert.equal(fs.existsSync(claudeManifestPath), true);
+});
+
+test('removal validation rejects descriptor traversal, cross-platform names, and symlinked parent chains', (t) => {
+  const { homeDir, platformRoots } = makeInstallFixture(t);
+  const manifest = makeManifest({ homeDir, platformRoots, platform: 'claude' });
+
+  for (const descriptorPath of [
+    'relative-descriptor.json',
+    '~/.drfx/capabilities/../victim.json',
+    '~/.drfx/capabilities/codex.json'
+  ]) {
+    assert.throws(
+      () => validateGeneratedRemoval({
+        ...manifest,
+        capabilityDescriptor: { path: descriptorPath, mutable: true }
+      }, { homeDir, platformRoots }),
+      /capability descriptor.*exact|current platform|canonical/i,
+      descriptorPath
+    );
+  }
+
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'drfx-descriptor-parent-'));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  const capabilities = path.join(homeDir, '.drfx', 'capabilities');
+  fs.rmSync(capabilities, { recursive: true, force: true });
+  fs.symlinkSync(outside, capabilities);
+  assert.throws(
+    () => validateGeneratedRemoval(manifest, { homeDir, platformRoots }),
+    /capability descriptor.*canonical|parent/i
+  );
+});
+
 test('uninstall preserves RULE.md, preferences.md, and project .drfx', async (t) => {
   const { homeDir, cwd, platformRoots } = makeCommandSandbox(t);
   const userState = path.join(homeDir, '.drfx');
@@ -1228,6 +1328,86 @@ test('failed Codex skill directory overwrite preserves old owned directory and d
   assert.equal(fs.readFileSync(path.join(route, 'SKILL.md'), 'utf8'), '# original owned skill\n');
   assert.equal(fs.readFileSync(path.join(route, 'user-note.md'), 'utf8'), 'preserve this backup source\n');
   assert.equal(readInstallManifest('codex', { homeDir }).missing, true);
+});
+
+test('post-swap Codex directory failure restores the displaced original directory', async (t) => {
+  const { homeDir, cwd, platformRoots } = makeCommandSandbox(t);
+  const route = path.join(platformRoots.codexSkills, 'review-fix-spec');
+  fs.mkdirSync(route, { recursive: true });
+  fs.writeFileSync(path.join(route, '.drfx-owned'), 'owned by @xenonbyte/drfx\n');
+  fs.writeFileSync(path.join(route, 'SKILL.md'), '# original owned skill\n');
+  fs.writeFileSync(path.join(route, 'user-note.md'), 'preserve after swap failure\n');
+
+  await assert.rejects(
+    () => installPlatform('codex', {
+      homeDir,
+      platformRoots,
+      cwd,
+      packageVersion: PACKAGE_VERSION,
+      _onAfterReplaceGeneratedDirectory({ targetPath }) {
+        if (targetPath === route) throw new Error('injected post-swap cleanup failure');
+      }
+    }),
+    /post-swap cleanup failure/i
+  );
+
+  assert.equal(fs.readFileSync(path.join(route, 'SKILL.md'), 'utf8'), '# original owned skill\n');
+  assert.equal(fs.readFileSync(path.join(route, 'user-note.md'), 'utf8'), 'preserve after swap failure\n');
+  assert.equal(readInstallManifest('codex', { homeDir }).missing, true);
+});
+
+test('displaced Codex directory cleanup failure is non-fatal after a successful swap', async (t) => {
+  const { homeDir, cwd, platformRoots } = makeCommandSandbox(t);
+  const route = path.join(platformRoots.codexSkills, 'review-fix-spec');
+  fs.mkdirSync(route, { recursive: true });
+  fs.writeFileSync(path.join(route, '.drfx-owned'), 'owned by @xenonbyte/drfx\n');
+  fs.writeFileSync(path.join(route, 'SKILL.md'), '# original owned skill\n');
+  fs.writeFileSync(path.join(route, 'user-note.md'), 'old displaced content\n');
+  let cleanupAttempted = false;
+
+  const result = await installPlatform('codex', {
+    homeDir,
+    platformRoots,
+    cwd,
+    packageVersion: PACKAGE_VERSION,
+    _removeReplacedGeneratedDirectory({ targetPath }) {
+      if (targetPath !== route) return;
+      cleanupAttempted = true;
+      throw new Error('injected displaced cleanup failure');
+    }
+  });
+
+  assert.equal(cleanupAttempted, true);
+  assert.equal(result.cleanupResidues.length, 1);
+  assert.equal(fs.existsSync(result.cleanupResidues[0].path), true);
+  assert.notEqual(fs.readFileSync(path.join(route, 'SKILL.md'), 'utf8'), '# original owned skill\n');
+  assert.equal(fs.existsSync(path.join(route, 'user-note.md')), false);
+  assert.equal(readInstallManifest('codex', { homeDir }).missing, false);
+});
+
+test('fresh install failure restores an existing doctor capability descriptor', async (t) => {
+  const { homeDir, cwd, platformRoots } = makeCommandSandbox(t);
+  const descriptorPath = path.join(homeDir, '.drfx', 'capabilities', 'claude.json');
+  const original = '{"source":"drfx doctor","status":"unverified"}\n';
+  fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
+  fs.writeFileSync(descriptorPath, original, { mode: 0o640 });
+
+  await assert.rejects(
+    () => installPlatform('claude', {
+      homeDir,
+      platformRoots,
+      cwd,
+      packageVersion: PACKAGE_VERSION,
+      _onBeforeWriteInstallManifest() {
+        throw new Error('injected manifest write failure');
+      }
+    }),
+    /manifest write failure/i
+  );
+
+  assert.equal(fs.readFileSync(descriptorPath, 'utf8'), original);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(descriptorPath).mode & 0o777, 0o640);
+  assert.equal(readInstallManifest('claude', { homeDir }).missing, true);
 });
 
 test('check reruns current probes and reports advisory reason', async (t) => {

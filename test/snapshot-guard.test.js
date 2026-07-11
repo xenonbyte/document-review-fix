@@ -172,6 +172,30 @@ test('snapshot target-only guard blocks non-target changes outside target direct
   assert.equal(actual.changedFiles, undefined);
 });
 
+test('snapshot target-only guard blocks an out-of-set permission-only change', (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX permission bits are required');
+  const fixture = makeWorkspace(t);
+  fs.chmodSync(fixture.sibling, 0o755);
+  const baseline = checkSnapshotTargetOnly({
+    projectRoot: fixture.root,
+    targetPath: fixture.target,
+    allowedStateDir: fixture.targetStateDir,
+    expectedNormalizedTarget: 'docs/target.md'
+  });
+
+  fs.chmodSync(fixture.sibling, 0o4755);
+  const result = inspectActualChangedFilesSnapshot({
+    projectRoot: fixture.root,
+    targetPath: fixture.target,
+    allowedStateDir: fixture.targetStateDir,
+    expectedNormalizedTarget: 'docs/target.md',
+    targetOnlyGuard: baseline
+  });
+
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.blockingReason, 'unexpected-worktree-change');
+});
+
 test('snapshot capture rejects symlinked snapshot parent directory', (t) => {
   const fixture = makeWorkspace(t);
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'drfx-snapshot-outside-round-'));
@@ -220,6 +244,32 @@ test('snapshot capture and restore round target body without touching non-target
   assert.equal(fs.readFileSync(fixture.target, 'utf8'), '# Target\n\nOriginal.\n');
   assert.equal(fs.readFileSync(fixture.sibling, 'utf8'), '# Sibling changed outside restore.\n');
   assert.equal(fs.existsSync(snapshotPath), false);
+});
+
+test('snapshot restore returns the target to its captured permission mode', (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX permission bits are required');
+  const fixture = makeWorkspace(t);
+  fs.chmodSync(fixture.target, 0o4640);
+  const snapshot = captureSnapshot({
+    projectRoot: fixture.root,
+    targetPath: fixture.target,
+    targetStateDir: fixture.targetStateDir,
+    round: 2,
+    expectedNormalizedTarget: 'docs/target.md'
+  });
+
+  fs.chmodSync(fixture.target, 0o755);
+  const restored = restoreSnapshot({
+    projectRoot: fixture.root,
+    targetPath: fixture.target,
+    targetStateDir: fixture.targetStateDir,
+    round: 2,
+    expectedNormalizedTarget: 'docs/target.md',
+    rollbackAnchor: snapshot
+  });
+
+  assert.equal(restored.status, 'passed');
+  assert.equal(fs.statSync(fixture.target).mode & 0o7777, 0o4640);
 });
 
 test('snapshot restore returns missing when snapshot body is absent', (t) => {
@@ -975,6 +1025,33 @@ test('file-set snapshot restore limits writes to monitored files only', (t) => {
   assert.equal(fs.readFileSync(fixture.sibling, 'utf8'), '# Sibling\n');
   // Unmonitored file preserved.
   assert.equal(fs.readFileSync(fixture.other, 'utf8'), '# Other mutated and must survive.\n');
+});
+
+test('file-set snapshot baseline detects and restores a monitored permission-only change', (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX permission bits are required');
+  const fixture = makeWorkspace(t);
+  fs.chmodSync(fixture.target, 0o4640);
+  const baseline = captureFileSetBaseline({
+    projectRoot: fixture.root,
+    monitoredFiles: ['docs/target.md']
+  });
+  fs.chmodSync(fixture.target, 0o755);
+
+  const validation = validateFileSetBaseline({
+    projectRoot: fixture.root,
+    monitoredFiles: ['docs/target.md'],
+    baseline
+  });
+  assert.equal(validation.status, 'passed');
+  assert.deepEqual(validation.changedFiles, ['docs/target.md']);
+
+  const restored = restoreFileSetBaseline({
+    projectRoot: fixture.root,
+    monitoredFiles: ['docs/target.md'],
+    baseline
+  });
+  assert.equal(restored.status, 'passed');
+  assert.equal(fs.statSync(fixture.target).mode & 0o7777, 0o4640);
 });
 
 test('file-set snapshot restore recreates a monitored file whose parent dir was removed', (t) => {

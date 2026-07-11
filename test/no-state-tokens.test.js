@@ -104,6 +104,20 @@ function reviewerFailBlock() {
   ].join('\n');
 }
 
+function reviewerTwoFindingBlock() {
+  return [
+    reviewerFailBlock(),
+    '- id: R002',
+    '  severity: medium',
+    '  location: target.md:2',
+    '  issue: second token regression',
+    '  why_it_matters: omitted findings could disappear',
+    '  suggested_fix: require complete triage coverage',
+    '  confidence: confirmed',
+    '  sensitive: false'
+  ].join('\n');
+}
+
 function reviewerPassBlock() {
   return [
     'PASS',
@@ -598,6 +612,41 @@ test('no-state record-triage rejects reviewer ids absent from review token findi
       '--triage-stdin'
     ], { stdin: triageAcceptedBlock('R999') }),
     /reviewer_id|R999/i
+  );
+});
+
+test('no-state record-triage rejects an omitted reviewer finding', async (t) => {
+  const { root, target } = makeNoStateFixture(t);
+  const stateToken = await createNoStateReviewToken({
+    root,
+    target,
+    resultText: reviewerTwoFindingBlock()
+  });
+
+  await assert.rejects(
+    () => runWorkflowCommand('record-triage', [
+      ...noStateReviewArgs({ root, target }),
+      '--state-token',
+      stateToken,
+      '--triage-stdin'
+    ], { stdin: triageAcceptedBlock('R001') }),
+    /missing.*R002|cover.*R002/i
+  );
+});
+
+test('no-state record-triage rejects severity laundering without an explicit downgrade', async (t) => {
+  const { root, target } = makeNoStateFixture(t);
+  const stateToken = await createNoStateReviewToken({ root, target, resultText: reviewerFailBlock() });
+  const triage = triageAcceptedBlock().replace('severity: high', 'severity: low');
+
+  await assert.rejects(
+    () => runWorkflowCommand('record-triage', [
+      ...noStateReviewArgs({ root, target }),
+      '--state-token',
+      stateToken,
+      '--triage-stdin'
+    ], { stdin: triage }),
+    /severity.*reviewer|downgraded/i
   );
 });
 

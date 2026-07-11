@@ -31,12 +31,44 @@ function makeWorkspace() {
 
 function statePaths(root, targetKey) {
   const targetDir = path.join(root, '.drfx', 'targets', targetKey);
+  const staleDir = path.join(targetDir, 'stale-locks');
+  const mutationDir = path.join(staleDir, '.mutation');
   return {
     targetDir,
     lockDir: path.join(targetDir, 'LOCK'),
     leasePath: path.join(targetDir, 'LOCK', 'lease.json'),
-    staleDir: path.join(targetDir, 'stale-locks')
+    staleDir,
+    mutationDir,
+    mutationLeasePath: path.join(mutationDir, 'owner.json')
   };
+}
+
+function writeMutationLease(workspace, overrides = {}) {
+  const { mutationDir, mutationLeasePath } = statePaths(workspace.root, workspace.targetKey);
+  fs.mkdirSync(mutationDir, { recursive: true });
+  const startedAt = overrides.startedAt || '2026-05-20T00:00:00.000Z';
+  fs.writeFileSync(mutationLeasePath, `${JSON.stringify({
+    schemaVersion: 1,
+    targetKey: workspace.targetKey,
+    ownerId: overrides.ownerId || 'crashed-mutation-owner',
+    processId: overrides.processId || 999999,
+    hostname: overrides.hostname || 'crashed-host',
+    startedAt,
+    updatedAt: overrides.updatedAt || startedAt,
+    expiresAt: overrides.expiresAt || '2026-05-20T00:01:00.000Z'
+  }, null, 2)}\n`);
+}
+
+function writeTakeoverClaim(workspace, overrides = {}) {
+  const { mutationDir } = statePaths(workspace.root, workspace.targetKey);
+  const createdAt = overrides.createdAt || '2026-05-20T00:00:00.000Z';
+  fs.writeFileSync(path.join(mutationDir, '.takeover.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    previousOwnerId: overrides.previousOwnerId || 'crashed-mutation-owner',
+    recoveryOwnerId: overrides.recoveryOwnerId || 'crashed-recovery-owner',
+    createdAt,
+    expiresAt: overrides.expiresAt || '2026-05-20T00:01:00.000Z'
+  }, null, 2)}\n`);
 }
 
 function acquireDefaults(overrides = {}) {
@@ -276,6 +308,90 @@ test('refresh mutation lock blocks takeover after validation before write', () =
   assert.equal(raced, true);
   assert.equal(refreshed.ownerId, 'owner-a');
   assert.equal(readLease({ projectRoot: workspace.root, targetKey: workspace.targetKey }).ownerId, 'owner-a');
+});
+
+test('refresh atomically recovers a valid expired mutation mutex left by a crashed process', () => {
+  const workspace = makeWorkspace();
+  const started = new Date('2026-05-20T00:00:00.000Z');
+  acquireDefaults({ workspace, now: started, ownerId: 'owner-a' });
+  writeMutationLease(workspace);
+
+  const refreshed = refreshLock({
+    projectRoot: workspace.root,
+    targetKey: workspace.targetKey,
+    ownerId: 'owner-a',
+    now: new Date('2026-05-20T00:02:00.000Z')
+  });
+  const { staleDir, mutationDir } = statePaths(workspace.root, workspace.targetKey);
+
+  assert.equal(refreshed.ownerId, 'owner-a');
+  assert.equal(fs.existsSync(mutationDir), false);
+  assert.equal(fs.readdirSync(staleDir).some((name) => name.startsWith('.mutation-stale-')), true);
+});
+
+test('malformed mutation mutex reports corrupt-lock instead of permanent lock-held', () => {
+  const workspace = makeWorkspace();
+  acquireDefaults({ workspace, ownerId: 'owner-a' });
+  const { mutationDir } = statePaths(workspace.root, workspace.targetKey);
+  fs.mkdirSync(mutationDir, { recursive: true });
+
+  assert.throws(
+    () => refreshLock({
+      projectRoot: workspace.root,
+      targetKey: workspace.targetKey,
+      ownerId: 'owner-a',
+      now: new Date('2026-05-20T00:02:00.000Z')
+    }),
+    (error) => error.status === 'blocked' && error.reason === 'corrupt-lock' && /mutation mutex/i.test(error.message)
+  );
+});
+
+test('refresh recovers an expired takeover claim left by a crash before rename', () => {
+  const workspace = makeWorkspace();
+  acquireDefaults({ workspace, now: new Date('2026-05-20T00:00:00.000Z'), ownerId: 'owner-a' });
+  writeMutationLease(workspace);
+  writeTakeoverClaim(workspace);
+
+  const refreshed = refreshLock({
+    projectRoot: workspace.root,
+    targetKey: workspace.targetKey,
+    ownerId: 'owner-a',
+    now: new Date('2026-05-20T00:02:00.000Z')
+  });
+
+  assert.equal(refreshed.ownerId, 'owner-a');
+  assert.equal(fs.existsSync(statePaths(workspace.root, workspace.targetKey).mutationDir), false);
+});
+
+test('refresh recovers after a crash immediately after atomically retiring its mutation mutex', () => {
+  const workspace = makeWorkspace();
+  const started = new Date('2026-05-20T00:00:00.000Z');
+  acquireDefaults({ workspace, now: started, ownerId: 'owner-a' });
+  let retiredPath = null;
+
+  assert.throws(
+    () => refreshLock({
+      projectRoot: workspace.root,
+      targetKey: workspace.targetKey,
+      ownerId: 'owner-a',
+      now: new Date('2026-05-20T00:00:30.000Z'),
+      _onAfterRetireMutation(metadata) {
+        retiredPath = metadata.retiredPath;
+        throw new Error('injected crash after mutation retirement');
+      }
+    }),
+    /crash after mutation retirement/i
+  );
+
+  assert.equal(fs.existsSync(statePaths(workspace.root, workspace.targetKey).mutationDir), false);
+  assert.equal(fs.existsSync(retiredPath), true);
+  const refreshed = refreshLock({
+    projectRoot: workspace.root,
+    targetKey: workspace.targetKey,
+    ownerId: 'owner-a',
+    now: new Date('2026-05-20T00:00:31.000Z')
+  });
+  assert.equal(refreshed.ownerId, 'owner-a');
 });
 
 test('pre-fix guard rejects mismatch against lease acquire fingerprint', () => {

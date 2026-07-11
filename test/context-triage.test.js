@@ -13,8 +13,14 @@ const {
   parseLedger
 } = require('../lib/ledger');
 const { acquireLock } = require('../lib/lock');
-const { computeFingerprint, deriveTargetKey } = require('../lib/target-state');
+const { computeFingerprint, deriveR2pTargetKey, deriveTargetKey } = require('../lib/target-state');
 const { runWorkflowCommand } = require('../lib/workflow');
+const {
+  enrichTriageDecisions,
+  resolveFileSetStateMetadata,
+  resolveStateCommandMetadata,
+  validateTriageReviewerIds
+} = require('../lib/workflow/helpers');
 const { formatManifestV2, parseManifestV2 } = require('../lib/workflow-state');
 
 function makeManifest(overrides = {}) {
@@ -260,6 +266,137 @@ test('triage records non-blocking low accepted issue ids only for low severity',
       }
     ]),
     /non-blocking|low/i
+  );
+});
+
+test('triage requires unique one-to-one coverage of every reviewer finding', () => {
+  const reviewerReport = {
+    normalized: {
+      findings: [
+        { id: 'R001', severity: 'high', location: 'A', issue: 'First', suggested_fix: 'Fix first' },
+        { id: 'R002', severity: 'medium', location: 'B', issue: 'Second', suggested_fix: 'Fix second' }
+      ]
+    }
+  };
+
+  assert.throws(
+    () => validateTriageReviewerIds({ decisions: [{
+      reviewer_id: 'R001',
+      decision: 'accepted',
+      severity: 'high',
+      original_severity: 'high'
+    }] }, reviewerReport),
+    /missing.*R002|cover.*R002/i
+  );
+  assert.throws(
+    () => validateTriageReviewerIds({
+      decisions: [
+        { reviewer_id: 'R001', decision: 'accepted', severity: 'high', original_severity: 'high' },
+        { reviewer_id: 'R001', decision: 'accepted', severity: 'high', original_severity: 'high' }
+      ]
+    }, reviewerReport),
+    /duplicate.*R001/i
+  );
+});
+
+test('triage severity stays bound to the reviewer finding unless explicitly downgraded', () => {
+  const reviewerReport = {
+    normalized: {
+      findings: [
+        {
+          id: 'R001',
+          severity: 'high',
+          location: 'A',
+          issue: 'Blocking finding',
+          suggested_fix: 'Fix it'
+        }
+      ]
+    }
+  };
+
+  assert.throws(
+    () => enrichTriageDecisions({ decisions: [{
+      reviewer_id: 'R001',
+      decision: 'accepted',
+      severity: 'low',
+      original_severity: 'high',
+      non_blocking: true
+    }] }, reviewerReport),
+    /severity.*reviewer|downgraded/i
+  );
+  assert.throws(
+    () => enrichTriageDecisions({ decisions: [{
+      reviewer_id: 'R001',
+      decision: 'downgraded',
+      severity: 'low',
+      original_severity: 'medium'
+    }] }, reviewerReport),
+    /original_severity.*high|reviewer severity/i
+  );
+  assert.throws(
+    () => enrichTriageDecisions({ decisions: [{
+      reviewer_id: 'R001',
+      decision: 'downgraded',
+      severity: 'high',
+      original_severity: 'high'
+    }] }, reviewerReport),
+    /strictly lower|lower severity/i
+  );
+
+  const [decision] = enrichTriageDecisions({ decisions: [{
+    reviewer_id: 'R001',
+    decision: 'downgraded',
+    severity: 'medium',
+    original_severity: 'high',
+    rationale: 'Impact is bounded'
+  }] }, reviewerReport);
+  assert.equal(decision.severity, 'medium');
+  assert.equal(decision.original_severity, 'high');
+});
+
+test('state command metadata re-derives the document key from the resolved target identity', (t) => {
+  const fixture = makePersistentFixture(t);
+  const redirected = path.join(fixture.root, 'docs', 'redirected.md');
+  fs.copyFileSync(fixture.target, redirected);
+  const manifest = parseManifestV2(fs.readFileSync(fixture.manifestPath, 'utf8'));
+  fs.writeFileSync(fixture.manifestPath, formatManifestV2({
+    ...manifest,
+    target: redirected,
+    normalizedTarget: 'docs/redirected.md'
+  }));
+
+  assert.throws(
+    () => resolveStateCommandMetadata(fixture.targetDir),
+    /derived target key|target identity|normalized target/i
+  );
+});
+
+test('file-set state metadata re-derives the R2P key from workId', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'drfx-r2p-state-key-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const originalWorkId = 'WF-20260711-original';
+  const targetKey = deriveR2pTargetKey({ projectRoot: root, workId: originalWorkId }).targetKey;
+  const targetDir = path.join(root, '.drfx', 'targets', targetKey);
+  const manifestPath = path.join(targetDir, 'MANIFEST.md');
+  const ledgerPath = path.join(targetDir, 'ISSUES.md');
+  fs.mkdirSync(targetDir, { recursive: true });
+  fs.writeFileSync(manifestPath, formatManifestV2(makeManifest({
+    targetContextKind: 'r2p',
+    target: 'none',
+    normalizedTarget: 'none',
+    documentType: 'none',
+    targetKey,
+    ledgerPath: path.relative(root, ledgerPath).split(path.sep).join('/'),
+    status: 'fix',
+    currentPhase: 'fix',
+    workId: 'WF-20260711-redirected',
+    runMdSha256: 'a'.repeat(64),
+    reviewSetFingerprint: 'b'.repeat(64)
+  })));
+
+  assert.throws(
+    () => resolveFileSetStateMetadata(targetDir),
+    /derived r2p target key/i
   );
 });
 
@@ -537,22 +674,23 @@ test('persistent fix context includes lock and target-only skeleton fields', asy
   assert.match(context.fixerGuard.referenceReadOnlyRule, /read-only/i);
 });
 
-test('review-and-fix triage with only non-blocking low does not persist read-only-clean', async (t) => {
+test('review-and-fix triage cannot launder a high finding into non-blocking low', async (t) => {
   const fixture = makePersistentFixture(t);
   await recordFailingReview(fixture);
 
-  const triage = await runWorkflowCommand('record-triage', [
-    ...workflowArgs(fixture),
-    '--triage-stdin'
-  ], {
-    cwd: fixture.root,
-    stdin: triageLowNonBlockingPayload()
-  });
-  assert.equal(triage.ok, true);
+  await assert.rejects(
+    () => runWorkflowCommand('record-triage', [
+      ...workflowArgs(fixture),
+      '--triage-stdin'
+    ], {
+      cwd: fixture.root,
+      stdin: triageLowNonBlockingPayload()
+    }),
+    /severity.*reviewer|downgraded/i
+  );
   const manifest = parseManifestV2(fs.readFileSync(fixture.manifestPath, 'utf8'));
-  assert.notEqual(manifest.status, 'read-only-clean');
-  assert.equal(manifest.status, 'full-re-review');
-  assert.equal(manifest.currentPhase, 'full-re-review');
+  assert.equal(manifest.status, 'triage');
+  assert.equal(manifest.currentPhase, 'triage');
 });
 
 test('buildContextPack omits changedSinceLastReview by default and includes it when provided', () => {

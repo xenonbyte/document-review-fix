@@ -684,7 +684,7 @@ test('workflow end-fix writes normalized report, marks issues fixed, updates man
 });
 
 test('porcelain status parser classifies copied target entries', () => {
-  assert.deepEqual(parsePorcelainStatus('C  docs/source.md -> docs/target.md\n'), [
+  assert.deepEqual(parsePorcelainStatus('C  docs/target.md\0docs/source.md\0'), [
     {
       statusCode: 'C ',
       kind: 'copied',
@@ -695,9 +695,34 @@ test('porcelain status parser classifies copied target entries', () => {
 
 test('porcelain status parser rejects unparseable target-only guard output', () => {
   assert.throws(
-    () => parsePorcelainStatus('not-a-porcelain-line\n'),
-    /unparseable git status line/i
+    () => parsePorcelainStatus('not-a-porcelain-line\0'),
+    /unparseable git status record/i
   );
+});
+
+test('porcelain status parser preserves Unicode and newline paths from NUL records', () => {
+  assert.deepEqual(parsePorcelainStatus(' M é.js\0?? line\nbreak.js\0'), [
+    { statusCode: ' M', kind: 'dirty', paths: ['é.js'] },
+    { statusCode: '??', kind: 'untracked', paths: ['line\nbreak.js'] }
+  ]);
+});
+
+test('target-only git guard parses a Unicode path with core.quotePath enabled', (t) => {
+  const { root, target } = makeGitRepo(t);
+  const unicodePath = path.join(root, 'é.js');
+  fs.writeFileSync(unicodePath, 'module.exports = 1;\n');
+  git(root, 'add .');
+  git(root, 'commit -m unicode');
+  git(root, 'config core.quotePath true');
+  fs.appendFileSync(unicodePath, '// changed\n');
+
+  const result = checkTargetOnlyWorktree({
+    projectRoot: root,
+    targetPath: target,
+    allowedStateDir: null
+  });
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.blockingReason, 'unexpected-worktree-change');
 });
 
 test('target-only worktree maps unavailable git status to target-only-guard-unavailable', (t) => {

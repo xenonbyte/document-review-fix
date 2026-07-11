@@ -11,7 +11,8 @@ const {
   mergeIssue,
   rejectIssue,
   deferIssue,
-  reopenIssue
+  reopenIssue,
+  applyTriageDecisions
 } = require('../lib/ledger');
 
 const TABLE_HEADER = '| ID | Severity | Status | Location | Summary | Resolution |';
@@ -45,6 +46,24 @@ test('validates allowed statuses and rejects unknown status', () => {
   assert.throws(
     () => parseLedger(`${TABLE_HEADER}\n| --- | --- | --- | --- | --- | --- |\n| ISSUE-001 | high | unknown | A | B | C |`),
     /unknown status/i
+  );
+});
+
+test('rejects unknown severities and duplicate issue ids in ledger input', () => {
+  assert.throws(
+    () => formatLedger({
+      issues: [{ id: 'ISSUE-001', severity: 'critical', status: 'accepted', location: 'A', summary: 'B', resolution: 'C' }]
+    }),
+    /unknown severity/i
+  );
+  assert.throws(
+    () => parseLedger([
+      TABLE_HEADER,
+      '| --- | --- | --- | --- | --- | --- |',
+      '| ISSUE-001 | high | accepted | A | B | C |',
+      '| ISSUE-001 | medium | accepted | D | E | F |'
+    ].join('\n')),
+    /duplicate.*ISSUE-001/i
   );
 });
 
@@ -103,6 +122,80 @@ test('records merged references', () => {
 
   assert.equal(merged.issues[1].status, 'merged');
   assert.match(merged.issues[1].resolution, /Merged into ISSUE-001/);
+});
+
+test('triage merge graph rejects cycles and non-active canonical survivors', () => {
+  const active = {
+    issues: [
+      { id: 'ISSUE-001', severity: 'high', status: 'accepted', location: 'A', summary: 'A', resolution: 'Pending' },
+      { id: 'ISSUE-002', severity: 'medium', status: 'accepted', location: 'B', summary: 'B', resolution: 'Pending' }
+    ]
+  };
+  assert.throws(
+    () => applyTriageDecisions(active, [
+      { reviewer_id: 'R001', issue_id: 'ISSUE-001', decision: 'merged', severity: 'high', merged_into: 'ISSUE-002', rationale: 'Duplicate' },
+      { reviewer_id: 'R002', issue_id: 'ISSUE-002', decision: 'merged', severity: 'medium', merged_into: 'ISSUE-001', rationale: 'Duplicate' }
+    ]),
+    /merge.*cycle|cyclic/i
+  );
+
+  const fixedSurvivor = {
+    issues: [
+      { id: 'ISSUE-001', severity: 'high', status: 'accepted', location: 'A', summary: 'A', resolution: 'Pending' },
+      { id: 'ISSUE-002', severity: 'high', status: 'fixed', location: 'B', summary: 'B', resolution: 'Fixed' }
+    ]
+  };
+  assert.throws(
+    () => applyTriageDecisions(fixedSurvivor, [
+      { reviewer_id: 'R001', issue_id: 'ISSUE-001', decision: 'merged', severity: 'high', merged_into: 'ISSUE-002', rationale: 'Duplicate' }
+    ]),
+    /canonical|accepted|reopened|fixed/i
+  );
+});
+
+test('triage merge preserves the highest blocking severity on the survivor', () => {
+  const merged = applyTriageDecisions({
+    issues: [
+      { id: 'ISSUE-001', severity: 'high', status: 'accepted', location: 'A', summary: 'A', resolution: 'Pending' },
+      { id: 'ISSUE-002', severity: 'low', status: 'accepted', location: 'B', summary: 'B', resolution: 'Pending' }
+    ]
+  }, [
+    { reviewer_id: 'R001', issue_id: 'ISSUE-001', decision: 'merged', severity: 'high', merged_into: 'ISSUE-002', rationale: 'Duplicate' }
+  ]);
+
+  assert.equal(merged.issues.find((issue) => issue.id === 'ISSUE-001').status, 'merged');
+  assert.equal(merged.issues.find((issue) => issue.id === 'ISSUE-002').status, 'accepted');
+  assert.equal(merged.issues.find((issue) => issue.id === 'ISSUE-002').severity, 'high');
+});
+
+test('triage rejects a batch that transitions a canonical merge survivor out of blocking state', () => {
+  const active = {
+    issues: [
+      { id: 'ISSUE-001', severity: 'high', status: 'accepted', location: 'A', summary: 'A', resolution: 'Pending' },
+      { id: 'ISSUE-002', severity: 'low', status: 'accepted', location: 'B', summary: 'B', resolution: 'Pending' }
+    ]
+  };
+
+  for (const terminalDecision of [
+    { reviewer_id: 'R002', issue_id: 'ISSUE-002', decision: 'rejected', severity: 'low', rationale: 'Not actionable' },
+    {
+      reviewer_id: 'R002',
+      issue_id: 'ISSUE-002',
+      decision: 'deferred',
+      severity: 'low',
+      rationale: 'Later work',
+      deferred_owner: 'maintainer',
+      deferred_next_action: 'Revisit the issue'
+    }
+  ]) {
+    assert.throws(
+      () => applyTriageDecisions(active, [
+        { reviewer_id: 'R001', issue_id: 'ISSUE-001', decision: 'merged', severity: 'high', merged_into: 'ISSUE-002', rationale: 'Duplicate' },
+        terminalDecision
+      ]),
+      /canonical.*survivor|merge.*survivor|accepted.*reopened/i
+    );
+  }
 });
 
 test('records rejected reasons and requires a reason', () => {

@@ -16,6 +16,7 @@ const { runWorkflowCommand } = require('../lib/workflow');
 const { formatManifestV2, parseManifestV2 } = require('../lib/workflow-state');
 const { parseLedger } = require('../lib/ledger');
 const { buildFileSetFinalValidationState } = require('../lib/workflow/file-set-finalize');
+const { resolveFileSetStateMetadata } = require('../lib/workflow/helpers');
 
 function git(cwd, args) {
   return execFileSync('git', args, {
@@ -184,6 +185,35 @@ test('CODE file-set context describes the scoped file set, never a single docume
   assert.deepEqual(context.contextPackSkeleton.fileSet.scopes, ['src']);
   assert.ok(context.contextPackSkeleton.fileSet.fileCount >= 2);
   assert.equal(context.contextPackSkeleton.documentType, 'none');
+});
+
+test('file-set state commands re-derive PR and CODE target keys from manifest identity fields', async (t) => {
+  const prRoot = makePrRepo(t);
+  const prStart = await runWorkflowCommand('start', practicalArgs(['review-fix-pr', 'base=main']), { cwd: prRoot });
+  const prManifest = parseManifestV2(fs.readFileSync(prStart.manifestPath, 'utf8'));
+  fs.writeFileSync(prStart.manifestPath, formatManifestV2({ ...prManifest, base: 'tampered-base' }));
+  assert.throws(
+    () => resolveFileSetStateMetadata(prStart.targetStateDir),
+    /derived pr target key/i
+  );
+  const prResult = await runWorkflowCommand('begin-fix', [prStart.targetStateDir, '--json'], { cwd: prRoot });
+  assert.equal(prResult.status, 'blocked');
+  assert.equal(prResult.blockingReason, 'state-validation-failed');
+
+  const codeRoot = makePrRepo(t);
+  const codeStart = await runWorkflowCommand('start', practicalArgs(['review-fix-code', 'scope=src']), { cwd: codeRoot });
+  const codeManifest = parseManifestV2(fs.readFileSync(codeStart.manifestPath, 'utf8'));
+  fs.writeFileSync(codeStart.manifestPath, formatManifestV2({
+    ...codeManifest,
+    normalizedScopes: ['tampered-scope']
+  }));
+  assert.throws(
+    () => resolveFileSetStateMetadata(codeStart.targetStateDir),
+    /derived code target key/i
+  );
+  const codeResult = await runWorkflowCommand('begin-fix', [codeStart.targetStateDir, '--json'], { cwd: codeRoot });
+  assert.equal(codeResult.status, 'blocked');
+  assert.equal(codeResult.blockingReason, 'state-validation-failed');
 });
 
 test('CODE file-set record-review blocks when scoped content changes after context', async (t) => {
@@ -858,6 +888,8 @@ test('PR file-set begin-fix allows diff members inside CODE-excluded directories
 test('CODE file-set abort-fix restores monitored files from persisted baseline bodies', async (t) => {
   const root = makePrRepo(t);
   const codeReviewFail = REVIEW_FAIL;
+  const targetPath = path.join(root, 'src', 'a.js');
+  if (process.platform !== 'win32') fs.chmodSync(targetPath, 0o640);
 
   const start = await runWorkflowCommand('start', practicalArgs(['review-fix-code', 'scope=src', 'guard=snapshot']), { cwd: root });
   assert.equal(start.ok, true);
@@ -883,11 +915,14 @@ test('CODE file-set abort-fix restores monitored files from persisted baseline b
   const persistedBaseline = JSON.parse(fs.readFileSync(path.join(start.targetStateDir, 'file-set-baseline.json'), 'utf8'));
   assert.equal(persistedBaseline.entries.every((entry) => !Object.hasOwn(entry, 'body')), true);
   assert.equal(persistedBaseline.entries.every((entry) => entry.missing || typeof entry.bodyPath === 'string'), true);
+  if (process.platform !== 'win32') {
+    assert.equal(persistedBaseline.entries.find((entry) => entry.path === 'src/a.js').mode, 0o640);
+  }
 
-  const targetPath = path.join(root, 'src', 'a.js');
   const before = fs.readFileSync(targetPath, 'utf8');
   const edited = 'module.exports = function safe() { try { return 2; } catch { return 0; } };\n';
   fs.writeFileSync(targetPath, edited);
+  if (process.platform !== 'win32') fs.chmodSync(targetPath, 0o755);
 
   const aborted = await runWorkflowCommand('abort-fix', [
     start.targetStateDir,
@@ -900,6 +935,32 @@ test('CODE file-set abort-fix restores monitored files from persisted baseline b
   assert.equal(aborted.ok, true, JSON.stringify(aborted));
   assert.equal(aborted.status, 'checkpoint');
   assert.equal(fs.readFileSync(targetPath, 'utf8'), before, 'abort must restore the monitored file body');
+  if (process.platform !== 'win32') assert.equal(fs.statSync(targetPath).mode & 0o7777, 0o640);
+});
+
+test('CODE file-set snapshot end-fix reloads a persisted permission-only change', async (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX permission bits are required');
+  const root = makePrRepo(t);
+  const args = practicalArgs(['review-fix-code', 'scope=src', 'guard=snapshot']);
+  const targetPath = path.join(root, 'src', 'a.js');
+  fs.chmodSync(targetPath, 0o640);
+  const start = await reachFileSetFixStage(root, args);
+  const beginFix = await runWorkflowCommand('begin-fix', [start.targetStateDir, '--json'], {
+    cwd: root,
+    now: new Date('2026-06-03T00:00:00.000Z')
+  });
+  assert.equal(beginFix.ok, true, JSON.stringify(beginFix));
+
+  fs.chmodSync(targetPath, 0o755);
+  const endFix = await runWorkflowCommand('end-fix', [
+    start.targetStateDir,
+    '--fix-report-stdin',
+    '--json'
+  ], { cwd: root, stdin: FIX_REPORT_FILESET });
+
+  assert.equal(endFix.ok, true, JSON.stringify(endFix));
+  assert.equal(endFix.status, 'end-fix');
+  assert.equal(endFix.currentPhase, 'diff-review');
 });
 
 test('CODE file-set abort-fix blocks rollback when the persisted baseline is missing', async (t) => {
