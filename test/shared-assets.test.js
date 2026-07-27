@@ -66,84 +66,84 @@ const GENERATED_SHELL_BASELINE_BYTES = Object.freeze({
 const CODEX_SHARED_DEDUP_EXPECTED_MEASUREMENT = Object.freeze({
   routes: Object.freeze({
     'review-fix-spec': Object.freeze({
-      routeBytes: 85016,
-      embeddedSharedBytes: 62725,
-      copiedSharedBytes: 62427,
-      duplicateBytes: 62427,
-      copiedRouteBytes: 23497,
-      shrinkBytes: 61519,
-      shrinkPercent: 72.36,
+      routeBytes: 85308,
+      embeddedSharedBytes: 63015,
+      copiedSharedBytes: 62717,
+      duplicateBytes: 62717,
+      copiedRouteBytes: 23499,
+      shrinkBytes: 61809,
+      shrinkPercent: 72.45,
       wouldGrow: false
     }),
     'review-fix-plan': Object.freeze({
-      routeBytes: 85324,
-      embeddedSharedBytes: 63033,
-      copiedSharedBytes: 62735,
-      duplicateBytes: 62735,
-      copiedRouteBytes: 23497,
-      shrinkBytes: 61827,
-      shrinkPercent: 72.46,
+      routeBytes: 85616,
+      embeddedSharedBytes: 63323,
+      copiedSharedBytes: 63025,
+      duplicateBytes: 63025,
+      copiedRouteBytes: 23499,
+      shrinkBytes: 62117,
+      shrinkPercent: 72.55,
       wouldGrow: false
     }),
     'review-fix-design': Object.freeze({
-      routeBytes: 85128,
-      embeddedSharedBytes: 62787,
-      copiedSharedBytes: 62487,
-      duplicateBytes: 62487,
-      copiedRouteBytes: 23549,
-      shrinkBytes: 61579,
-      shrinkPercent: 72.34,
+      routeBytes: 85420,
+      embeddedSharedBytes: 63077,
+      copiedSharedBytes: 62777,
+      duplicateBytes: 62777,
+      copiedRouteBytes: 23551,
+      shrinkBytes: 61869,
+      shrinkPercent: 72.43,
       wouldGrow: false
     }),
     'review-fix-doc': Object.freeze({
-      routeBytes: 81822,
-      embeddedSharedBytes: 59547,
-      copiedSharedBytes: 59288,
-      duplicateBytes: 59288,
-      copiedRouteBytes: 23454,
-      shrinkBytes: 58368,
-      shrinkPercent: 71.34,
+      routeBytes: 82114,
+      embeddedSharedBytes: 59837,
+      copiedSharedBytes: 59578,
+      duplicateBytes: 59578,
+      copiedRouteBytes: 23456,
+      shrinkBytes: 58658,
+      shrinkPercent: 71.43,
       wouldGrow: false
     }),
     'review-fix-pr': Object.freeze({
-      routeBytes: 82163,
-      embeddedSharedBytes: 60052,
-      copiedSharedBytes: 59797,
-      duplicateBytes: 59797,
-      copiedRouteBytes: 23286,
-      shrinkBytes: 58877,
-      shrinkPercent: 71.66,
+      routeBytes: 82455,
+      embeddedSharedBytes: 60342,
+      copiedSharedBytes: 60087,
+      duplicateBytes: 60087,
+      copiedRouteBytes: 23288,
+      shrinkBytes: 59167,
+      shrinkPercent: 71.76,
       wouldGrow: false
     }),
     'review-fix-code': Object.freeze({
-      routeBytes: 93150,
-      embeddedSharedBytes: 63652,
-      copiedSharedBytes: 63395,
-      duplicateBytes: 63395,
-      copiedRouteBytes: 30675,
-      shrinkBytes: 62475,
-      shrinkPercent: 67.07,
+      routeBytes: 93442,
+      embeddedSharedBytes: 63942,
+      copiedSharedBytes: 63685,
+      duplicateBytes: 63685,
+      copiedRouteBytes: 30677,
+      shrinkBytes: 62765,
+      shrinkPercent: 67.17,
       wouldGrow: false
     }),
     'review-fix-r2p': Object.freeze({
-      routeBytes: 84157,
-      embeddedSharedBytes: 63404,
-      copiedSharedBytes: 62735,
-      duplicateBytes: 62735,
-      copiedRouteBytes: 21959,
-      shrinkBytes: 62198,
-      shrinkPercent: 73.91,
+      routeBytes: 84452,
+      embeddedSharedBytes: 63694,
+      copiedSharedBytes: 63025,
+      duplicateBytes: 63025,
+      copiedRouteBytes: 21964,
+      shrinkBytes: 62488,
+      shrinkPercent: 73.99,
       wouldGrow: false
     })
   }),
   totals: Object.freeze({
-    routeBytes: 596760,
-    embeddedSharedBytes: 435200,
-    copiedSharedBytes: 432864,
-    duplicateBytes: 432864
+    routeBytes: 598807,
+    embeddedSharedBytes: 437230,
+    copiedSharedBytes: 434894,
+    duplicateBytes: 434894
   }),
-  largestShellShrinkBytes: 62475,
-  largestShellShrinkPercent: 67.07,
+  largestShellShrinkBytes: 62765,
+  largestShellShrinkPercent: 67.17,
   anyCodexRouteWouldGrow: false,
   gateEntered: true
 });
@@ -478,11 +478,53 @@ test('generated r2p route text uses workId shorthand and exposes no user-facing 
   }
 });
 
+test('generated user invocations use explicit platform prefixes while workflow route arguments stay bare', () => {
+  for (const platform of ['claude', 'codex', 'gemini', 'opencode']) {
+    for (const route of listRoutes()) {
+      const rendered = renderPlatformRoute(platform, route.routeName, { packageVersion: SNAPSHOT_VERSION });
+      const shell = maskEmbeddedSharedContent(platform, rendered);
+      const explicitInvocation = `${platform === 'codex' ? '$' : '/'}${route.routeName}`;
+      const grammarPrefix = platform === 'gemini' ? 'Invocation:\n' : 'Invocation syntax:\n\n```text\n';
+      const fullFormPrefix = platform === 'gemini'
+        ? `Full form: ${explicitInvocation}`
+        : `Full form: \`${explicitInvocation}`;
+
+      assert.ok(
+        shell.includes(`${grammarPrefix}${explicitInvocation}`),
+        `${platform}:${route.routeName} invocation grammar must use ${explicitInvocation}`
+      );
+      assert.ok(
+        shell.includes(fullFormPrefix),
+        `${platform}:${route.routeName} full form must use ${explicitInvocation}`
+      );
+
+      // Route Output templates are copied into the user's terminal, so an invocation
+      // echoed back must be one the user can actually type on this platform.
+      for (const line of shell.split('\n').filter((candidate) => candidate.startsWith('Blocked: '))) {
+        assert.doesNotMatch(
+          line,
+          new RegExp(`(^|[^$/\\w-])${route.routeName}`),
+          `${platform}:${route.routeName} blocked output must not echo a bare route name: ${line}`
+        );
+      }
+
+      const workflowRouteLines = generatedWorkflowCommandLines(rendered)
+        .filter((line) => line.includes(route.routeName));
+      assert.ok(workflowRouteLines.length > 0, `${platform}:${route.routeName} must render internal workflow route arguments`);
+      for (const line of workflowRouteLines) {
+        assert.match(line, new RegExp(`drfx workflow [^\\n]*${route.routeName}`), line);
+        assert.doesNotMatch(line, /drfx workflow [^\n]*[$/]review-fix-/, line);
+      }
+    }
+  }
+});
+
 test('generated r2p workflow commands preserve the root override token', () => {
   const SNAPSHOT_VERSION = '0.0.0-snapshot';
 
   for (const platform of ['claude', 'codex', 'gemini', 'opencode']) {
     const rendered = renderPlatformRoute(platform, 'review-fix-r2p', { packageVersion: SNAPSHOT_VERSION });
+    const explicitInvocation = platform === 'codex' ? '$review-fix-r2p' : '/review-fix-r2p';
     const commandLines = generatedWorkflowCommandLines(rendered)
       .filter((line) => line.includes('review-fix-r2p'));
 
@@ -495,9 +537,11 @@ test('generated r2p workflow commands preserve the root override token', () => {
       );
     }
     if (platform !== 'gemini') {
-      assert.match(
-        rendered,
-        /r2p-reopen[^\n]+`review-fix-r2p workId=<new-WF-\.\.\.> <rootToken>`[^\n]+r2p-gap-open[^\n]+`review-fix-r2p workId=<same-WF-\.\.\.> resume <rootToken>`/,
+      assert.ok(
+        rendered.includes(
+          `r2p-reopen\`, rerun \`${explicitInvocation} workId=<new-WF-...> <rootToken>\`; ` +
+          `for \`r2p-gap-open\`, rerun \`${explicitInvocation} workId=<same-WF-...> resume <rootToken>\``
+        ),
         `${platform}:review-fix-r2p rerun guidance must preserve root=<project-root> and same-workId resume`
       );
     }
@@ -991,6 +1035,9 @@ test('usage examples prefer bare target paths while preserving target form and g
   assert.match(templates, /target=<path>/);
   assert.match(templates, /guard=git\|snapshot/);
   assert.match(core, /bare path/i);
+  assert.match(core, /`\$review-fix-spec docs\/spec\.md` on Codex/);
+  assert.match(core, /`\/review-fix-spec docs\/spec\.md` on Claude Code, Gemini, and opencode/);
+  assert.doesNotMatch(core, /for example `review-fix-spec docs\/spec\.md`/);
   assert.match(core, /guard=git\|snapshot/);
   assert.match(coordinator, /bare path/i);
 });

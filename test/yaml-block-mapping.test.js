@@ -92,6 +92,15 @@ test('trailing spaces and a missing final newline do not change the value', () =
   assert.deepEqual(parsed('a: 1').get('a'), plain('1'));
 });
 
+test('preserves Unicode whitespace that YAML keeps in plain scalars', () => {
+  assert.deepEqual(parsed('a: false\u00a0\n').get('a'), plain('false\u00a0'));
+  assert.deepEqual(parsed('a: \u00a0false\n').get('a'), plain('\u00a0false'));
+});
+
+test('preserves printable Unicode text in plain scalars', () => {
+  assert.deepEqual(parsed('a: café 中文 😀\n').get('a'), plain('café 中文 😀'));
+});
+
 test('CRLF line endings parse the same as LF', () => {
   assert.deepEqual(
     parsed('policy:\r\n  allow_implicit_invocation: false\r\n'),
@@ -165,6 +174,33 @@ test('rejects tab indentation and control characters', () => {
   rejected('a:\tb\n', 'tab inside a line');
   rejected('a: \u0000\n', 'NUL byte');
   rejected('a: b\u001f\n', 'unit separator');
+});
+
+test('rejects every YAML-non-printable character range before discarding comments', () => {
+  const ranges = [
+    [0x00, 0x08],
+    [0x0b, 0x0c],
+    [0x0e, 0x1f],
+    [0x7f, 0x84],
+    [0x86, 0x9f]
+  ];
+  const codePoints = ranges.flatMap(([start, end]) =>
+    Array.from({ length: end - start + 1 }, (_, offset) => start + offset)
+  );
+  codePoints.push(0xd800, 0xdfff, 0xfffe, 0xffff);
+
+  for (const codePoint of codePoints) {
+    const hex = codePoint.toString(16).toUpperCase().padStart(4, '0');
+    rejected(`a: false # hidden ${String.fromCodePoint(codePoint)}\n`, `U+${hex}`);
+  }
+});
+
+test('rejects unsupported Unicode line separators before discarding comments', () => {
+  for (const codePoint of [0x85, 0x2028, 0x2029]) {
+    const hex = codePoint.toString(16).toUpperCase().padStart(4, '0');
+    const separator = String.fromCodePoint(codePoint);
+    rejected(`a: false # hidden${separator}b: true\n`, `U+${hex}`);
+  }
 });
 
 test('rejects indentation that does not line up', () => {

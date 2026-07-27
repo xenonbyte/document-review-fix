@@ -1,4 +1,4 @@
-Full form: `{{ROUTE_NAME}} base=<branch> ...`. `base=<branch>` is required and names the merge base for the diff; `HEAD` is the other end. There is no bare-path or `target=` form for this route.
+Full form: `{{ROUTE_INVOCATION}} base=<branch> ...`. `base=<branch>` is required and names the merge base for the diff; `HEAD` is the other end. There is no bare-path or `target=` form for this route.
 
 This route accepts only `base=<branch>`, optional `read-only` or `review-and-fix`, optional `guard=git|snapshot`, optional `resume` or `reset`, optional `rounds=<n>`, optional `root=<project-root>`, and optional `debug`. `resume` and `reset` are mutually exclusive. It does not accept `ref=`, `strict`, `normal`, `assurance=`, or `ledger=`.
 

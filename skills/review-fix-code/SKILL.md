@@ -12,7 +12,7 @@ Users must not pass `target=`, `type`, `ref=`, `base=`, `assurance=`, `strict`, 
 Invocation syntax:
 
 ```text
-review-fix-code [scope=<path>...] [read-only|review-and-fix] [guard=git|snapshot] [resume|reset] [rounds=<n>] [root=<project-root>] [debug]
+$review-fix-code [scope=<path>...] [read-only|review-and-fix] [guard=git|snapshot] [resume|reset] [rounds=<n>] [root=<project-root>] [debug]
 ```
 
 `scope=<path>` names a source root to review; repeat `scope=<path>` for multiple roots. Omit `scope=` to review the whole project root within a single-pass budget of 300 files or 1,500,000 bytes; a larger whole-root file set is reviewed as a partitioned project review (a deterministic, multi-phase, unit-by-unit review) instead of blocking — narrow with `scope=<path>` to keep it a single pass. There is no bare-path or `target=` form.

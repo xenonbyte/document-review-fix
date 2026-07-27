@@ -1,4 +1,4 @@
-Full form: {{ROUTE_NAME}} workId=<WF-...> ... . A bare WF-... token is accepted as shorthand for workId=<WF-...>. The target names an active r2p run under <project>/.req-to-plan/WF-*. There is no ref= or path form for this route.
+Full form: {{ROUTE_INVOCATION}} workId=<WF-...> ... . A bare WF-... token is accepted as shorthand for workId=<WF-...>. The target names an active r2p run under <project>/.req-to-plan/WF-*. There is no ref= or path form for this route.
 
 This route accepts only a bare WF-... token or workId=<WF-...>, optional read-only, optional root=<project-root>, and optional debug. It does not accept target=, ref=, strict, normal, assurance=, ledger=, scope=, base=, guard=, review-and-fix, resume, reset, or rounds=.
 

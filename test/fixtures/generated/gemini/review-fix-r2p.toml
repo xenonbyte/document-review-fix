@@ -33,9 +33,9 @@ Route contract:
 - Gemini must not edit 07-plan.md, the upstream docs (03-06), run.md, or workflow state except through no-state workflow outputs.
 
 Invocation:
-review-fix-r2p workId=<WF-...> [read-only] [root=<project-root>] [debug]
+/review-fix-r2p workId=<WF-...> [read-only] [root=<project-root>] [debug]
 
-Full form: review-fix-r2p workId=<WF-...> ... . A bare WF-... token is accepted as shorthand for workId=<WF-...>. The target names an active r2p run under <project>/.req-to-plan/WF-*. There is no ref= or path form for this route.
+Full form: /review-fix-r2p workId=<WF-...> ... . A bare WF-... token is accepted as shorthand for workId=<WF-...>. The target names an active r2p run under <project>/.req-to-plan/WF-*. There is no ref= or path form for this route.
 
 This route accepts only a bare WF-... token or workId=<WF-...>, optional read-only, optional root=<project-root>, and optional debug. It does not accept target=, ref=, strict, normal, assurance=, ledger=, scope=, base=, guard=, review-and-fix, resume, reset, or rounds=.
 
@@ -101,7 +101,7 @@ State: <target-state-dir when persistent state exists>
 
 Blocked wording must distinguish normalized blocker codes.
 
-Blocked: `review-fix-r2p workId=<WF-...>` cannot run repair commands from the current run state.
+Blocked: `/review-fix-r2p workId=<WF-...>` cannot run repair commands from the current run state.
 
 Next: rerun with `read-only` to inspect findings, or restore the active run so `r2p-reopen` or `r2p-gap-open` can run, then rerun `review-and-fix`.
 

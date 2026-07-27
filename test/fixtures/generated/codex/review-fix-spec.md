@@ -40,10 +40,10 @@ Before any target read or workflow command, read the copied shared source files 
 Invocation syntax:
 
 ```text
-review-fix-spec <path> [ref=<path>...] [read-only|review-and-fix] [strict|normal] [assurance=practical|strict-verified|advisory] [guard=git|snapshot] [resume|reset] [rounds=<n>] [ledger=<target-local path>] [root=<project-root>] [debug]
+$review-fix-spec <path> [ref=<path>...] [read-only|review-and-fix] [strict|normal] [assurance=practical|strict-verified|advisory] [guard=git|snapshot] [resume|reset] [rounds=<n>] [ledger=<target-local path>] [root=<project-root>] [debug]
 ```
 
-Full form: `review-fix-spec target=<path> ...`. A bare path is shorthand for `target=<path>`. When `target=` is used, unlabeled paths are rejected.
+Full form: `$review-fix-spec target=<path> ...`. A bare path is shorthand for `target=<path>`. When `target=` is used, unlabeled paths are rejected.
 
 If a valid target invocation omits both mode and assurance, missing mode selects `review-and-fix` and missing assurance selects `practical`.
 

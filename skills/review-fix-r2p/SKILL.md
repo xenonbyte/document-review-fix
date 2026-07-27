@@ -12,10 +12,10 @@ This entry skill reviews the requirement plan (`07-plan.md`) against its owning 
 Invocation syntax:
 
 ```text
-review-fix-r2p workId=<WF-...> [read-only|review-and-fix] [resume|reset] [rounds=<n>] [root=<project-root>] [debug]
+$review-fix-r2p workId=<WF-...> [read-only|review-and-fix] [resume|reset] [rounds=<n>] [root=<project-root>] [debug]
 ```
 
-Full form: `review-fix-r2p workId=<WF-...> ...`. A bare `WF-...` token is shorthand for `workId=<WF-...>`. This route reviews only the active `.req-to-plan/<workId>/` run and rejects path input such as `target=...`, `.req-to-plan/WF-*`, or `07-plan.md`.
+Full form: `$review-fix-r2p workId=<WF-...> ...`. A bare `WF-...` token is shorthand for `workId=<WF-...>`. This route reviews only the active `.req-to-plan/<workId>/` run and rejects path input such as `target=...`, `.req-to-plan/WF-*`, or `07-plan.md`.
 
 This route accepts only the tokens above. It does not accept `target=`, `ref=`, `strict`, `normal`, `assurance=`, `ledger=`, `scope=`, `base=`, or `guard=`; it has a fixed PLAN rubric and no reference-document surface.
 
@@ -30,7 +30,7 @@ In `review-and-fix`, repair means only an official r2p lifecycle command:
 - `r2p-reopen` for closed or executing runs
 - `r2p-gap-open` for open runs whose owner stage is strictly upstream of `current_stage`
 
-Findings map to an r2p `ownerStage`, not to an editable file. After `apply-r2p-repair`, the round ends at checkpoint with `r2p-repair-applied`; the next action is to run `r2p-continue`, let r2p regenerate artifacts, then rerun `review-fix-r2p workId=<new-or-same-WF-...>`. PASS is allowed only on that clean rerun.
+Findings map to an r2p `ownerStage`, not to an editable file. After `apply-r2p-repair`, the round ends at checkpoint with `r2p-repair-applied`; the next action is to run `r2p-continue`, let r2p regenerate artifacts, then rerun `$review-fix-r2p workId=<new-or-same-WF-...>`. PASS is allowed only on that clean rerun.
 
 `rounds=<n>` sets the maximum repair-loop count for review-and-fix; it is unsupported with `read-only`.
 

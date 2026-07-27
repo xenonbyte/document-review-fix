@@ -39,10 +39,10 @@ Help-style or invalid invocations explain usage without reading files, running p
 Invocation syntax:
 
 ```text
-review-fix-r2p workId=<WF-...> [read-only|review-and-fix] [resume|reset] [rounds=<n>] [root=<project-root>] [debug]
+/review-fix-r2p workId=<WF-...> [read-only|review-and-fix] [resume|reset] [rounds=<n>] [root=<project-root>] [debug]
 ```
 
-Full form: `review-fix-r2p workId=<WF-...> ...`. A bare `WF-...` token is accepted as shorthand for `workId=<WF-...>`. The target names an active r2p run under `<project>/.req-to-plan/WF-*`; there is no `ref=` or path form for this route.
+Full form: `/review-fix-r2p workId=<WF-...> ...`. A bare `WF-...` token is accepted as shorthand for `workId=<WF-...>`. The target names an active r2p run under `<project>/.req-to-plan/WF-*`; there is no `ref=` or path form for this route.
 
 This route accepts only a bare `WF-...` token or `workId=<WF-...>`, optional `read-only` or `review-and-fix`, optional `resume` or `reset`, optional `rounds=<n>`, optional `root=<project-root>`, and optional `debug`. `resume` and `reset` are mutually exclusive. It does not accept `target=`, `ref=`, `strict`, `normal`, `assurance=`, `ledger=`, `scope=`, `base=`, or `guard=`.
 
@@ -150,7 +150,7 @@ For r2p, this internal preflight command accepts materialized `--assurance pract
 If preflight blocks, do not dispatch the semantic reviewer and do not create target state. Render concise default output:
 
 ```text
-Blocked: `review-fix-r2p workId=<WF-...>` cannot run repair commands from the current run state.
+Blocked: `/review-fix-r2p workId=<WF-...>` cannot run repair commands from the current run state.
 
 Next: rerun with `read-only` to inspect findings, or restore the active run so `r2p-reopen` or `r2p-gap-open` can run, then rerun `review-and-fix`.
 ```
@@ -215,7 +215,7 @@ Then coordinate this loop:
 5. If `record-review` returns `FAIL`, triage every finding semantically and submit the triage with `drfx workflow record-triage review-fix-r2p workId=<WF-...> <rootToken> review-and-fix --assurance practical --runtime-platform claude-code --runtime-subagent-probe ready --runtime-stdin-handoff ready --runtime-downgrade-reason none --triage-stdin --json=compact`.
 6. If accepted, reopened, or downgraded high/medium blocking issues remain, run `drfx workflow record-r2p-repair-plan <targetStateDir> --json=compact`.
 7. Apply the validated repair command with `drfx workflow apply-r2p-repair <targetStateDir> --json=compact`. Direct artifact writes are forbidden: do not run `begin-fix`, `refresh-lock`, `end-fix`, `abort-fix`, or `record-diff-review` for r2p.
-8. After `apply-r2p-repair`, stop at checkpoint. Tell the user to run `r2p-continue`, let r2p regenerate artifacts, then follow the returned next action: for `r2p-reopen`, rerun `review-fix-r2p workId=<new-WF-...> <rootToken>`; for `r2p-gap-open`, rerun `review-fix-r2p workId=<same-WF-...> resume <rootToken>`.
+8. After `apply-r2p-repair`, stop at checkpoint. Tell the user to run `r2p-continue`, let r2p regenerate artifacts, then follow the returned next action: for `r2p-reopen`, rerun `/review-fix-r2p workId=<new-WF-...> <rootToken>`; for `r2p-gap-open`, rerun `/review-fix-r2p workId=<same-WF-...> resume <rootToken>`.
 9. If triage leaves no accepted, reopened, or downgraded high/medium blocking issues after a reviewer `FAIL`, run full re-review context with `drfx workflow context review-fix-r2p workId=<WF-...> <rootToken> review-and-fix --assurance practical --runtime-platform claude-code --runtime-subagent-probe ready --runtime-stdin-handoff ready --runtime-downgrade-reason none --phase full-re-review --json=compact`, then record the full re-review with `drfx workflow record-review review-fix-r2p workId=<WF-...> <rootToken> review-and-fix --assurance practical --runtime-platform claude-code --runtime-subagent-probe ready --runtime-stdin-handoff ready --runtime-downgrade-reason none --phase full-re-review --result-stdin --json=compact`. Finalize only if that latest reviewer result is `PASS`.
 Direct artifact writes are forbidden for r2p. Do not materialize or pass `guard=`. The route still performs internal drift detection over `run.md` and `03-07` before repair commands, and it may repair only through `r2p-reopen` or `r2p-gap-open`.
 

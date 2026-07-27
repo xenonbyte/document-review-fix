@@ -5,11 +5,11 @@
 # `drfx install` validates this file with `lib/yaml-block-mapping.js` and refuses to
 # install when the setting is missing or permissive.
 #
-# That validator accepts only plain block mappings: comments, blank lines, nested
-# mappings, and quoted scalars are fine, but sequences (`- item`), flow style
-# (`{a: b}`, `[a, b]`), document markers (`---`, `...`), tab indentation, anchors, and
-# duplicate keys make the whole file unreadable and fail the install. The OpenAI sample
-# `dependencies.tools` block is a sequence — teach the validator sequences before
-# adding one here.
+# The parser accepts only a narrow YAML block-mapping subset. The install validator
+# then requires the exact generated schema: one top-level `policy` mapping containing
+# only the plain `allow_implicit_invocation: false` scalar. Extend both validators
+# before adding fields such as `interface`, `dependencies`, or `policy.products`;
+# unsupported or malformed metadata must fail the install instead of restoring Codex
+# defaults.
 policy:
   allow_implicit_invocation: false

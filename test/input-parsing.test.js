@@ -333,6 +333,16 @@ test('review-fix-code rejects base= token with message referencing review-fix-pr
   );
 });
 
+// Parsing has no runtime platform, so the route the user is told to run instead must
+// name both explicit syntaxes rather than a bare route name they cannot type.
+test('the base= rejection tells the user to run review-fix-pr explicitly', () => {
+  assert.throws(
+    () => parseInvocation('review-fix-code', ['base=main']),
+    (error) => error.code === 'ERR_BASE_UNSUPPORTED' &&
+      error.message.includes('run $review-fix-pr on Codex or /review-fix-pr on other platforms')
+  );
+});
+
 test('review-fix-code rejects document-only tokens: target, ref, strict, normal, assurance, ledger, type', () => {
   assert.throws(() => parseInvocation('review-fix-code', ['target=foo.md']), /unknown token/i);
   assert.throws(() => parseInvocation('review-fix-code', ['ref=foo.md']), /unknown token/i);

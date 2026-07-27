@@ -1693,6 +1693,30 @@ test('validateGeneratedPlan fails closed when a Codex generated skill plan is in
       mutate: rewritePolicy('policy:\n  allow_implicit_invocation: false\ndependencies: [\n')
     },
     {
+      name: 'schema-invalid scalar interface after a disabling policy',
+      mutate: rewritePolicy('policy:\n  allow_implicit_invocation: false\ninterface: false\n')
+    },
+    {
+      name: 'schema-invalid scalar dependencies after a disabling policy',
+      mutate: rewritePolicy('policy:\n  allow_implicit_invocation: false\ndependencies: bad\n')
+    },
+    {
+      name: 'schema-invalid scalar policy products after a disabling policy',
+      mutate: rewritePolicy(
+        'policy:\n  allow_implicit_invocation: false\n  products: CODEX\n'
+      )
+    },
+    {
+      name: 'unknown top-level field after a disabling policy',
+      mutate: rewritePolicy('policy:\n  allow_implicit_invocation: false\nfuture_field: false\n')
+    },
+    {
+      name: 'unknown policy field after a disabling policy',
+      mutate: rewritePolicy(
+        'policy:\n  allow_implicit_invocation: false\n  future_field: false\n'
+      )
+    },
+    {
       name: 'duplicate top-level policy key',
       mutate: rewritePolicy(
         'policy:\n  allow_implicit_invocation: false\npolicy:\n  allow_implicit_invocation: true\n'
@@ -1705,6 +1729,39 @@ test('validateGeneratedPlan fails closed when a Codex generated skill plan is in
       )
     },
     { name: 'tab indentation', mutate: rewritePolicy('policy:\n\tallow_implicit_invocation: false\n') },
+    {
+      name: 'trailing Unicode whitespace changes false into a string',
+      mutate: rewritePolicy('policy:\n  allow_implicit_invocation: false\u00a0\n')
+    },
+    {
+      name: 'leading Unicode whitespace changes false into a string',
+      mutate: rewritePolicy('policy:\n  allow_implicit_invocation: \u00a0false\n')
+    },
+    {
+      name: 'DEL control character hidden in a trailing comment',
+      mutate: rewritePolicy('policy:\n  allow_implicit_invocation: false #\u007f\n')
+    },
+    {
+      name: 'NEL line separator hides a second permissive policy',
+      mutate: rewritePolicy(
+        'policy:\n  allow_implicit_invocation: false #\u0085policy:\u0085  allow_implicit_invocation: true\n'
+      )
+    },
+    {
+      name: 'later duplicate metadata file overwrites the validated safe file',
+      mutate: (files) => {
+        const safeMetadata = files.find(
+          (file) => file.relativePath === path.join('agents', 'openai.yaml')
+        );
+        return [
+          ...files,
+          {
+            ...safeMetadata,
+            content: 'policy:\n  allow_implicit_invocation: true\n'
+          }
+        ];
+      }
+    },
     { name: 'quoted string value', mutate: rewritePolicy('policy:\n  allow_implicit_invocation: "false"\n') }
   ];
 
@@ -1716,11 +1773,70 @@ test('validateGeneratedPlan fails closed when a Codex generated skill plan is in
     );
   }
 
-  // Shapes that genuinely set policy.allow_implicit_invocation must still pass.
+  const appendGeneratedFile = (relativePath) => (files) => [
+    ...files,
+    {
+      relativePath,
+      content: 'policy:\n  allow_implicit_invocation: true\n'
+    }
+  ];
+  const generatedPathCases = [
+    {
+      name: 'current-directory metadata alias',
+      mutate: appendGeneratedFile('agents/./openai.yaml')
+    },
+    {
+      name: 'parent-directory metadata alias',
+      mutate: appendGeneratedFile('agents/x/../openai.yaml')
+    },
+    {
+      name: 'repeated-separator metadata alias',
+      mutate: appendGeneratedFile('agents//openai.yaml')
+    },
+    {
+      name: 'case-insensitive metadata alias',
+      mutate: appendGeneratedFile('agents/OpenAI.yaml')
+    },
+    {
+      name: 'parent traversal outside the generated skill',
+      mutate: appendGeneratedFile('../outside.md')
+    },
+    {
+      name: 'absolute generated file path',
+      mutate: appendGeneratedFile(path.resolve(os.tmpdir(), 'drfx-outside.md'))
+    },
+    {
+      name: 'empty generated file path',
+      mutate: appendGeneratedFile('')
+    },
+    {
+      name: 'non-string generated file path',
+      mutate: appendGeneratedFile(null)
+    },
+    {
+      name: 'Windows-unsafe trailing dot',
+      mutate: appendGeneratedFile(path.join('shared', 'unsafe.'))
+    },
+    {
+      name: 'Windows-unsafe trailing space',
+      mutate: appendGeneratedFile(path.join('shared', 'unsafe '))
+    },
+    {
+      name: 'Windows NTFS alternate-data-stream metadata alias',
+      mutate: appendGeneratedFile(path.join('agents', 'openai.yaml::$DATA'))
+    }
+  ];
+
+  for (const testCase of generatedPathCases) {
+    assert.throws(
+      () => validateGeneratedPlan('codex', corruptedSpecSkill(testCase.mutate)),
+      (error) => error && error.code === 'ERR_CODEX_GENERATED_PATH_PLAN',
+      `validateGeneratedPlan must reject generated path: ${testCase.name}`
+    );
+  }
+
+  // Equivalent encodings of the complete schema the generator emits must still pass.
   const acceptedPolicyCases = [
-    { name: 'sibling block before policy', content: 'interface:\n  display_name: "drfx"\n\npolicy:\n  allow_implicit_invocation: false\n' },
-    { name: 'sibling block after policy', content: 'policy:\n  allow_implicit_invocation: false\n\ninterface:\n  display_name: "drfx"\n' },
-    { name: 'nested sibling key before the direct key', content: 'policy:\n  nested:\n    x: 1\n  allow_implicit_invocation: false\n' },
     { name: 'four-space child indent', content: 'policy:\n    allow_implicit_invocation: false\n' },
     { name: 'CRLF line endings', content: 'policy:\r\n  allow_implicit_invocation: false\r\n' }
   ];
@@ -1749,14 +1865,29 @@ test('validateGeneratedPlan fails closed when a Codex generated skill plan is in
       expected: /is not a supported YAML block mapping/
     },
     {
-      name: 'no policy block',
+      name: 'unsupported top-level field',
       content: 'interface:\n  display_name: "drfx"\n',
-      expected: /has no top-level `policy:` block mapping/
+      expected: /unsupported top-level field `interface`/
     },
     {
-      name: 'field absent from the policy block',
+      name: 'schema-invalid scalar interface',
+      content: 'policy:\n  allow_implicit_invocation: false\ninterface: false\n',
+      expected: /unsupported top-level field `interface`/
+    },
+    {
+      name: 'schema-invalid scalar dependencies',
+      content: 'policy:\n  allow_implicit_invocation: false\ndependencies: bad\n',
+      expected: /unsupported top-level field `dependencies`/
+    },
+    {
+      name: 'unsupported policy field',
       content: 'policy:\n  nested:\n    allow_implicit_invocation: false\n',
-      expected: /does not set `allow_implicit_invocation` as a direct child/
+      expected: /unsupported policy field `nested`/
+    },
+    {
+      name: 'schema-invalid scalar policy products',
+      content: 'policy:\n  allow_implicit_invocation: false\n  products: CODEX\n',
+      expected: /unsupported policy field `products`/
     },
     {
       name: 'permissive value',

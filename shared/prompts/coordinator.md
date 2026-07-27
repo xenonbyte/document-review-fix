@@ -128,7 +128,7 @@ r2p finding-to-ownerStage map (`review-fix-r2p workId=<WF-...>` only):
   - pure task decomposition, ordering, command, or plan-local issue -> `plan`
 - In `review-and-fix`, accepted findings become one validated r2p repair plan: `r2p-reopen` for closed/executing runs, `r2p-gap-open` for open runs whose owner stage is strictly upstream of `current_stage`, and `r2p-current-stage-repair-required` checkpoint when the owning stage equals `current_stage`.
 - For r2p triage payloads, every `accepted` or `reopened` finding must carry `owner_stage`; include `reason` for `r2p-reopen` wording and `required_action` for `r2p-gap-open` wording when known. Use `none` for non-r2p or not applicable.
-- After `apply-r2p-repair`, stop at checkpoint with `r2p-repair-applied`. Tell the user to run `r2p-continue`, let r2p regenerate artifacts, then follow the returned next action: `r2p-reopen` reruns `review-fix-r2p workId=<new-WF-...>`, while `r2p-gap-open` reruns `review-fix-r2p workId=<same-WF-...> resume`. PASS is allowed only on that clean rerun.
+- After `apply-r2p-repair`, stop at checkpoint with `r2p-repair-applied`. Tell the user to run `r2p-continue`, let r2p regenerate artifacts, then follow the returned next action: `r2p-reopen` reruns `$review-fix-r2p workId=<new-WF-...>` on Codex or `/review-fix-r2p workId=<new-WF-...>` on Claude Code, Gemini, and opencode; `r2p-gap-open` reruns `$review-fix-r2p workId=<same-WF-...> resume` on Codex or `/review-fix-r2p workId=<same-WF-...> resume` on Claude Code, Gemini, and opencode. PASS is allowed only on that clean rerun.
 - In `read-only`, name the owning stage for each blocking finding and stop as read-only-findings (never PASS).
 
 Convergence:

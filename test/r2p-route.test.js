@@ -350,19 +350,21 @@ function runtimeArgs(routeTokens, overrides = {}) {
   ];
 }
 
-function workflowInvocation(workId, extraTokens = []) {
+function workflowInvocation(workId, extraTokens = [], overrides = {}) {
   return runtimeArgs([
     'review-fix-r2p',
     `workId=${workId}`,
     'review-and-fix',
     ...extraTokens
-  ]);
+  ], {
+    runtimePlatform: overrides.runtimePlatform
+  });
 }
 
 async function startFor(root, homeDir, workId, extraTokens = [], overrides = {}) {
   return runWorkflowCommand(
     'start',
-    workflowInvocation(workId, extraTokens),
+    workflowInvocation(workId, extraTokens, overrides),
     {
       cwd: root,
       homeDir,
@@ -374,7 +376,7 @@ async function startFor(root, homeDir, workId, extraTokens = [], overrides = {})
 async function contextFor(root, homeDir, workId, extraTokens = [], overrides = {}) {
   return runWorkflowCommand(
     'context',
-    workflowInvocation(workId, extraTokens),
+    workflowInvocation(workId, extraTokens, overrides),
     {
       cwd: root,
       homeDir,
@@ -387,7 +389,7 @@ async function recordReviewFor(root, homeDir, workId, extraTokens = [], override
   return runWorkflowCommand(
     'record-review',
     [
-      ...workflowInvocation(workId, extraTokens),
+      ...workflowInvocation(workId, extraTokens, overrides),
       '--phase',
       'initial-review',
       '--result-stdin'
@@ -405,7 +407,7 @@ async function recordReviewPassFor(root, homeDir, workId, extraTokens = [], over
   return runWorkflowCommand(
     'record-review',
     [
-      ...workflowInvocation(workId, extraTokens),
+      ...workflowInvocation(workId, extraTokens, overrides),
       '--phase',
       'initial-review',
       '--result-stdin'
@@ -423,7 +425,7 @@ async function recordTriageFor(root, homeDir, workId, extraTokens = [], override
   return runWorkflowCommand(
     'record-triage',
     [
-      ...workflowInvocation(workId, extraTokens),
+      ...workflowInvocation(workId, extraTokens, overrides),
       '--triage-stdin'
     ],
     {
@@ -502,7 +504,10 @@ test('gate1 invocation accept/reject incl. archive-bypass and flag-injection', a
     const blocked = await runWorkflowCommand('start', runtimeArgs(tokens), { cwd: root, homeDir });
     assert.equal(blocked.status, 'blocked');
     assert.equal(blocked.blockingReason, 'invalid-r2p-invocation');
-    assert.equal(blocked.nextAction, 'rerun as review-fix-r2p workId=<WF-...>');
+    assert.equal(
+      blocked.nextAction,
+      'rerun explicitly as $review-fix-r2p workId=<WF-...> on Codex or /review-fix-r2p workId=<WF-...> on other platforms'
+    );
   }
 
   const missingRoot = path.join(root, 'missing-project-root');
@@ -1477,6 +1482,82 @@ test('gate6 repair exec argv shell:false; capture new_work_id/route_id; checkpoi
   assert.match(gapOpenLog, /R2P_JSON=1/);
   assert.match(gapOpenLog, new RegExp(`--work-id ${gapWorkId}`));
   assert.match(gapOpenLog, /--confirm/);
+});
+
+test('r2p apply, receipt fallback, and finalize fallback preserve persisted runtime invocation syntax', async (t) => {
+  for (const runtimePlatform of ['codex', 'claude-code']) {
+    const { root, homeDir } = makeSandbox(t);
+    const workId = `WF-20260627-explicit-${runtimePlatform}`;
+    makeRun(root, workId);
+    const fake = installFakeR2pCli(root, {
+      'r2p-status': statusScript({
+        work_id: workId,
+        status: 'closed_at_plan_checkpoint',
+        current_stage: 'plan',
+        open_routes_detail: []
+      })
+    });
+    const env = { ...process.env, PATH: `${fake.binDir}${path.delimiter}${process.env.PATH || ''}` };
+    const routeInvocation = runtimePlatform === 'codex'
+      ? '$review-fix-r2p'
+      : '/review-fix-r2p';
+    const { start } = await reachAcceptedRepairState(root, homeDir, workId, [], {
+      env,
+      runtimePlatform
+    });
+    const manifest = parseManifestV2(fs.readFileSync(start.manifestPath, 'utf8'));
+    assert.equal(manifest.runtimePlatform, runtimePlatform);
+
+    const fallbackReceipt = writeReceipt({
+      projectRoot: root,
+      targetKey: start.targetKey,
+      round: 1,
+      kind: 'r2p-repair-fallback',
+      status: 'checkpoint',
+      statusReason: 'none',
+      command: 'r2p-reopen',
+      argv: [],
+      exitCode: 0,
+      stdout: 'none',
+      stderr: '',
+      workId,
+      issueIds: [],
+      runtimePlatform
+    });
+    assert.ok(
+      fs.readFileSync(fallbackReceipt.receiptPath, 'utf8')
+        .includes(`run r2p-continue and rerun ${routeInvocation}`)
+    );
+
+    await recordRepairPlanFor(root, homeDir, start.targetStateDir, { env });
+    const apply = await runWorkflowCommand('apply-r2p-repair', [start.targetStateDir, '--json'], {
+      cwd: root,
+      homeDir,
+      env
+    });
+    assert.equal(apply.ok, true, JSON.stringify(apply));
+    assert.ok(apply.nextAction.includes(`then rerun ${routeInvocation} workId=`));
+    assert.equal(apply.nextAction.includes('then rerun review-fix-r2p'), false);
+    assert.ok(
+      fs.readFileSync(apply.receiptPath, 'utf8')
+        .includes(`then rerun ${routeInvocation} workId=`)
+    );
+
+    fs.rmSync(apply.receiptPath);
+    const sameRoundFinal = await runWorkflowCommand(
+      'finalize',
+      [start.targetStateDir, '--final-response-stdin', '--json'],
+      {
+        cwd: root,
+        homeDir,
+        stdin: FINAL_PASS,
+        env
+      }
+    );
+    assert.equal(sameRoundFinal.statusReason, 'r2p-repair-applied');
+    assert.ok(sameRoundFinal.nextAction.includes(`then rerun ${routeInvocation}`));
+    assert.equal(sameRoundFinal.nextAction.includes('then rerun review-fix-r2p'), false);
+  }
 });
 
 test('gate7 rerun-PASS only after clean re-review', async (t) => {

@@ -76,3 +76,26 @@ for (const route of listRoutes()) {
     }
   });
 }
+
+test('source descriptors preserve explicit Codex invocation syntax', () => {
+  for (const route of listRoutes()) {
+    const { file, text } = readDescriptor(route.routeName);
+
+    assert.ok(
+      text.includes(`\`\`\`text\n$${route.routeName}`),
+      `Invocation syntax must use the Codex $ prefix (${file})`
+    );
+    if (text.includes('Full form:')) {
+      assert.ok(
+        text.includes(`Full form: \`$${route.routeName}`),
+        `Full form must use the Codex $ prefix (${file})`
+      );
+    }
+  }
+
+  const { file, text } = readDescriptor('review-fix-r2p');
+  assert.ok(
+    text.includes('then rerun `$review-fix-r2p workId=<new-or-same-WF-...>`'),
+    `clean rerun guidance must use the Codex $ prefix (${file})`
+  );
+});

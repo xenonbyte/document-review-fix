@@ -2,7 +2,12 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { getRouteDescriptor, listRoutes, listDocumentRoutes } = require('../lib/routes');
+const {
+  explicitRouteInvocation,
+  getRouteDescriptor,
+  listRoutes,
+  listDocumentRoutes
+} = require('../lib/routes');
 const { mergeRules } = require('../lib/rulebook');
 
 // ---------------------------------------------------------------------------
@@ -21,6 +26,23 @@ test('route registry exposes seven supported routes with defaults', () => {
   ]);
   assert.equal(getRouteDescriptor('review-fix-pr').defaultMode, 'review-and-fix');
   assert.equal(getRouteDescriptor('review-fix-pr').defaultGuard, 'git');
+});
+
+test('explicit route invocation preserves platform syntax and arguments', () => {
+  assert.equal(
+    explicitRouteInvocation('review-fix-r2p', 'codex', 'workId=WF-1 resume'),
+    '$review-fix-r2p workId=WF-1 resume'
+  );
+  for (const platform of ['claude', 'claude-code', 'gemini', 'opencode']) {
+    assert.equal(
+      explicitRouteInvocation('review-fix-r2p', platform, 'workId=WF-1 resume'),
+      '/review-fix-r2p workId=WF-1 resume'
+    );
+  }
+  assert.equal(
+    explicitRouteInvocation('review-fix-r2p', 'manual', 'workId=WF-1 resume'),
+    '$review-fix-r2p workId=WF-1 resume on Codex or /review-fix-r2p workId=WF-1 resume on other platforms'
+  );
 });
 
 test('route registry exposes correct routeKind for each route', () => {

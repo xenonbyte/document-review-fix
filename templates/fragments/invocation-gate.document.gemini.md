@@ -1,4 +1,4 @@
-Full form: {{ROUTE_NAME}} target=<path> ... . A bare path is shorthand for target=<path>. When target= is used, unlabeled paths are rejected.
+Full form: {{ROUTE_INVOCATION}} target=<path> ... . A bare path is shorthand for target=<path>. When target= is used, unlabeled paths are rejected.
 
 If a valid target invocation omits mode, missing mode selects read-only. If it omits assurance, missing assurance selects advisory.
 
