@@ -8,6 +8,8 @@ English | [简体中文](README.zh-CN.md)
 
 > Install document and code review-fix routes into Claude Code, Codex, Gemini, and opencode.
 
+[Introduction](#introduction) · [Installation](#installation) · [Routes](#routes) · [Quick Start](#quick-start) · [Invocation Syntax](#invocation-syntax) · [Modes](#modes) · [Output](#output) · [Review Rules](#review-rules) · [Custom Rules](#custom-rules) · [State and Resume](#state-and-resume) · [Write Safety](#write-safety) · [Troubleshooting](#troubleshooting)
+
 ## Introduction
 
 `@xenonbyte/drfx` installs seven review routes: four document routes (SPEC, PLAN, DESIGN, COMMON), two code routes (`review-fix-pr` for pull request diffs and `review-fix-code` for source scope review), and one requirement-plan route (`review-fix-r2p`). All routes can run a read-only review or a review-and-fix loop.
@@ -18,6 +20,7 @@ It is built for repeatable, auditable review: every fix is confined to a declare
 
 - **Seven routes** — four document routes (SPEC, PLAN, DESIGN, COMMON), two code routes (`review-fix-pr`, `review-fix-code`), and one requirement-plan route (`review-fix-r2p`).
 - **Two modes** — `read-only` review, or `review-and-fix` with a bounded repair loop.
+- **Explicit invocation only** — a route starts because you typed `$review-fix-*` or `/review-fix-*`, never because the model inferred it from a request like `fix this bug`.
 - **Guarded writes** — `guard=git` or `guard=snapshot` prove fixes stayed inside the target file set; otherwise the run blocks instead of writing.
 - **Layered rules** — built-in rubrics plus optional user-global and project-local custom rules.
 - **Safe install/uninstall** — manifest-backed and owned-only; uninstall never deletes files it does not own.
@@ -73,7 +76,8 @@ The explicit-invocation policy is stored in the generated Claude and Codex artif
 drfx install --platform codex,claude
 ```
 
-Upgrading the npm package alone does not rewrite artifacts that are already installed.
+> [!IMPORTANT]
+> Upgrading the npm package alone does not rewrite artifacts that are already installed. Until you rerun `drfx install`, previously installed Claude and Codex routes keep their old metadata and can still be selected by the model on their own.
 
 Report what is installed per platform:
 

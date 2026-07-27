@@ -8,6 +8,8 @@
 
 > 把 document 和 code review-fix routes 安装进 Claude Code、Codex、Gemini 和 opencode。
 
+[Introduction](#introduction) · [Installation](#installation) · [Routes](#routes) · [Quick Start](#quick-start) · [Invocation Syntax](#invocation-syntax) · [Modes](#modes) · [Output](#output) · [Review Rules](#review-rules) · [Custom Rules](#custom-rules) · [State and Resume](#state-and-resume) · [Write Safety](#write-safety) · [Troubleshooting](#troubleshooting)
+
 ## Introduction
 
 `@xenonbyte/drfx` 安装七条 review routes：四条 document routes（SPEC、PLAN、DESIGN、COMMON）、两条 code routes（`review-fix-pr` 用于 pull request diff，`review-fix-code` 用于 source scope review），以及一条 requirement-plan route（`review-fix-r2p`）。所有路由均支持 read-only review 或 review-and-fix loop。
@@ -18,6 +20,7 @@
 
 - **七条 routes** —— 四条 document routes（SPEC、PLAN、DESIGN、COMMON）、两条 code routes（`review-fix-pr`、`review-fix-code`），以及一条 requirement-plan route（`review-fix-r2p`）。
 - **两种 modes** —— `read-only` review，或带有界修复循环的 `review-and-fix`。
+- **仅限显式调用** —— route 只因你输入 `$review-fix-*` 或 `/review-fix-*` 而启动，绝不会因模型从 `fix this bug` 之类的请求中推断而触发。
 - **受守卫的写入** —— `guard=git` 或 `guard=snapshot` 证明 fix 始终留在 target file set 内；否则 route 阻断而不写入。
 - **分层规则** —— 内置 rubric，加上可选的 user-global 与 project-local 自定义规则。
 - **安全装卸** —— manifest 支撑、owned-only；uninstall 绝不删除不属于自己的文件。
@@ -73,7 +76,8 @@ drfx install --platform claude                # 单个平台
 drfx install --platform codex,claude
 ```
 
-只升级 npm package 不会改写已经安装的 artifacts。
+> [!IMPORTANT]
+> 只升级 npm package 不会改写已经安装的 artifacts。在重新运行 `drfx install` 之前，此前装好的 Claude 与 Codex routes 仍保留旧 metadata，仍可能被模型自行选中。
 
 报告每个平台已安装的内容：
 
