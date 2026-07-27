@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.3 - 2026-07-27
+
+Makes every generated route explicit-invocation-only so ordinary review, debugging, or bug-fix intent can no longer select a drfx route.
+
+### Added
+
+- **Explicit-invocation metadata on generated Claude and Codex routes.** All seven generated Claude commands set frontmatter `disable-model-invocation: true`, and every generated Codex skill now ships `agents/openai.yaml` with `policy.allow_implicit_invocation: false` (rendered from `templates/codex-openai.yaml`). Codex does not honour `disable-model-invocation`, so both surfaces are required (`templates/claude-command.md.tmpl`, `templates/codex-skill.md.tmpl`, `lib/generator.js`).
+- **Install-time invocation-policy gate.** `validateGeneratedPlan` reads `allow_implicit_invocation` as a direct child of the top-level `policy:` block in the planned `agents/openai.yaml` and fails with `ERR_CODEX_INVOCATION_POLICY_PLAN` when the file is missing or does not disable implicit invocation, so a corrupted or truncated template cannot silently install a route that Codex may invoke on its own. A key nested deeper (`policy.<other>.allow_implicit_invocation`) leaves the real field absent and is rejected, matching Codex's default-`true` behaviour (`lib/install.js`).
+
+### Changed
+
+- **Source skill descriptors match the generated policy.** `skills/review-fix-*/` carry the same `agents/openai.yaml` and an explicit-invocation note in their description, so a hand-copied descriptor behaves like an installed route (`skills/`).
+- **Docs use the platform invocation prefix.** README examples show `$review-fix-*` for Codex and `/review-fix-*` for Claude Code, Gemini, and opencode, and state which platforms enforce the explicit form through metadata versus by construction (`README.md`, `README.zh-CN.md`).
+
+### Upgrade notes
+
+- Existing Claude and Codex installs keep their previous artifacts until they are rewritten. Run `drfx install --platform codex,claude` after upgrading the package. Route arguments, defaults, and the whole-project meaning of `review-fix-code` with `scope=` omitted are unchanged.
+
 ## 0.10.2 - 2026-07-11
 
 Hardens git status parsing, mutation-lock crash recovery, ledger merges, install rollback, and state target-identity checks.

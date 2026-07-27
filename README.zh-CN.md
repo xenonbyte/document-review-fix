@@ -67,6 +67,14 @@ drfx install --platform claude                # 单个平台
 - `gemini`: command TOML files 到 `~/.gemini/commands`。Gemini routes 仅支持 advisory read-only。
 - `opencode`: command files 到 `~/.config/opencode/commands`。
 
+显式调用策略保存在 generated Claude 和 Codex artifacts 中。如果这些 routes 是由旧版 drfx 安装的，请重新运行以下命令升级：
+
+```bash
+drfx install --platform codex,claude
+```
+
+只升级 npm package 不会改写已经安装的 artifacts。
+
 报告每个平台已安装的内容：
 
 ```bash
@@ -98,57 +106,83 @@ review-fix-code   source scope file set
 review-fix-r2p    r2p requirement-plan review
 ```
 
+全部七条 routes 都必须在 agent input 中显式调用：
+
+```text
+Codex:                          $review-fix-*
+Claude Code / Gemini / opencode: /review-fix-*
+```
+
+开头的 `$` 是 Codex skill 的字面调用前缀，不是 shell prompt。
+
+显式调用的强制方式因平台而异：
+
+- `claude` 和 `codex` 的 generated metadata 会关闭模型主动选择 route 的能力（command frontmatter 中的 `disable-model-invocation: true`；`agents/openai.yaml` 中的 `policy.allow_implicit_invocation: false`）。`fix this bug` 之类的普通请求，以及常规 review 或 debugging 请求，都不会启动 drfx route。
+- `gemini` 和 `opencode` 安装的是由用户调用的 custom commands，没有对应开关，因此在这两个平台上显式的 `/review-fix-*` 形式是进入 route 的唯一途径。
+
+显式调用 route 后，其参数和默认值保持不变。尤其是，调用 `review-fix-code` 时省略 `scope=` 仍表示 review 整个项目。
+
 路由名选择 review target。Document routes：不要传 `type=`。Code routes（`review-fix-pr`、`review-fix-code`）：不要传 `target=`、`ref=`、`strict`、`normal`、`assurance=` 或 `ledger=`。
 
 ## Quick Start
 
-在 Codex、Claude Code 或 opencode 上 review 并自动修复 SPEC 文档：
+在 Codex 上 review 并自动修复 SPEC 文档（开头的 `$` 是字面 skill 前缀）：
 
 ```text
-review-fix-spec docs/spec.md
+$review-fix-spec docs/spec.md
 ```
+
+在 Claude Code 或 opencode 上使用 slash-command 形式：
+
+```text
+/review-fix-spec docs/spec.md
+```
+
+Gemini 也使用 `/review-fix-*`，但 routes 仅支持 advisory read-only。后续示例使用 slash-command syntax；在 Codex 上，把开头的 `/` 换成 `$`。
 
 Bare path 是 `target=<path>` 的简写。完整形式仍支持：
 
 ```text
-review-fix-spec target=docs/spec.md
+/review-fix-spec target=docs/spec.md
 ```
 
 只 review、不编辑，可选带 reference documents：
 
 ```text
-review-fix-design docs/design.md read-only
-review-fix-plan docs/plan.md ref=docs/spec.md ref=docs/design.md
+/review-fix-design docs/design.md read-only
+/review-fix-plan docs/plan.md ref=docs/spec.md ref=docs/design.md
 ```
 
 运行 strict review-and-fix，或一个有界修复循环：
 
 ```text
-review-fix-plan docs/plan.md review-and-fix strict guard=git
-review-fix-plan docs/plan.md rounds=3
+/review-fix-plan docs/plan.md review-and-fix strict guard=git
+/review-fix-plan docs/plan.md rounds=3
 ```
 
 Review 一个 pull request diff（仅本地 git，no fetch）：
 
 ```text
-review-fix-pr base=main
-review-fix-pr base=main read-only
-review-fix-pr base=main guard=snapshot
-review-fix-pr base=main rounds=2
-review-fix-pr base=main resume
+/review-fix-pr base=main
+/review-fix-pr base=main read-only
+/review-fix-pr base=main guard=snapshot
+/review-fix-pr base=main rounds=2
+/review-fix-pr base=main resume
 ```
 
 Review 整个 project root（省略 `scope=` 表示全项目），或限定到一个/多个目录或文件。whole-root review 在 300 个文件或 1,500,000 字节（在全部排除生效后计数）的单遍预算内一次审完；项目更大时会作为 partitioned project review 进行审查，或用 `scope=<path>` 或项目根的 `.drfxignore` 文件让它保持单遍：
 
 ```text
-review-fix-code
-review-fix-code scope=lib scope=test
-review-fix-code scope=lib read-only
-review-fix-code scope=lib guard=snapshot
-review-fix-code scope=lib resume
+/review-fix-code
+/review-fix-code scope=lib scope=test
+/review-fix-code scope=lib read-only
+/review-fix-code scope=lib guard=snapshot
+/review-fix-code scope=lib resume
 ```
 
 ## Invocation Syntax
+
+以下 signatures 省略 platform invocation prefix，只展示 route arguments。在 Codex 上加 `$`，在 Claude Code、Gemini 和 opencode 上加 `/`。
 
 ### Document routes (review-fix-spec / plan / design / doc)
 

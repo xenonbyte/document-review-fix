@@ -798,6 +798,23 @@ test('install writes manifests and installer-default descriptors into isolated h
   assert.equal(fs.existsSync(path.join(codexSpecDir, 'shared', '.drfx-owned')), true);
   assert.equal(fs.existsSync(path.join(codexSpecDir, 'shared', 'core.md')), true);
   assert.match(fs.readFileSync(path.join(codexSpecDir, 'SKILL.md'), 'utf8'), /fail closed/i);
+  for (const routeName of [
+    'review-fix-spec',
+    'review-fix-plan',
+    'review-fix-design',
+    'review-fix-doc',
+    'review-fix-pr',
+    'review-fix-code',
+    'review-fix-r2p'
+  ]) {
+    const policyPath = path.join(platformRoots.codexSkills, routeName, 'agents', 'openai.yaml');
+    assert.equal(fs.existsSync(policyPath), true, `${routeName} Codex policy metadata must be installed`);
+    assert.equal(
+      fs.readFileSync(policyPath, 'utf8'),
+      'policy:\n  allow_implicit_invocation: false\n',
+      `${routeName} Codex policy metadata must disable implicit invocation`
+    );
+  }
   assert.equal(fs.existsSync(path.join(platformRoots.gemini, 'review-fix-spec.toml')), true);
   assert.equal(fs.existsSync(path.join(platformRoots.opencode, 'review-fix-spec.md')), true);
 });
@@ -1611,7 +1628,7 @@ test('generated Codex skills use manifest-owned copied shared source and fail-cl
   assert.match(skillText, /this skill directory offline/i);
 });
 
-test('validateGeneratedPlan fails closed when a Codex copied-shared-source plan is incomplete', () => {
+test('validateGeneratedPlan fails closed when a Codex generated skill plan is incomplete', () => {
   const intactCodexPlan = () => generatePlatformFiles('codex', { packageVersion: PACKAGE_VERSION });
 
   // A complete copied-shared-source plan must pass.
@@ -1625,6 +1642,75 @@ test('validateGeneratedPlan fails closed when a Codex copied-shared-source plan 
   }
 
   const dropFile = (relativePath) => (files) => files.filter((file) => file.relativePath !== relativePath);
+
+  // Codex treats an absent allow_implicit_invocation as true, so a present-but-wrong
+  // agents/openai.yaml is exactly as unsafe as a missing one and must fail closed too.
+  const rewritePolicy = (content) => (files) => files.map((file) => (
+    file.relativePath === path.join('agents', 'openai.yaml') ? { ...file, content } : file
+  ));
+
+  const invocationPolicyCases = [
+    { name: 'missing agents/openai.yaml', mutate: dropFile(path.join('agents', 'openai.yaml')) },
+    { name: 'empty policy file', mutate: rewritePolicy('') },
+    { name: 'implicit invocation explicitly allowed', mutate: rewritePolicy('policy:\n  allow_implicit_invocation: true\n') },
+    { name: 'policy key absent from the block', mutate: rewritePolicy('policy:\n  something_else: false\n') },
+    { name: 'key outside the policy block', mutate: rewritePolicy('allow_implicit_invocation: false\n') },
+    {
+      name: 'key indented under a different top-level block',
+      mutate: rewritePolicy('policy:\ninterface:\n  allow_implicit_invocation: false\n')
+    },
+    {
+      name: 'policy is not a top-level key',
+      mutate: rewritePolicy('interface:\n  policy:\n    allow_implicit_invocation: false\n')
+    },
+    // Only a DIRECT child of `policy:` sets the field. A deeper
+    // `policy.<other>.allow_implicit_invocation` leaves the real field absent, which
+    // Codex reads as the default `true`.
+    {
+      name: 'key nested one level below a direct child',
+      mutate: rewritePolicy('policy:\n  nested:\n    allow_implicit_invocation: false\n')
+    },
+    {
+      name: 'key nested two levels below a direct child',
+      mutate: rewritePolicy('policy:\n  a:\n    b:\n      allow_implicit_invocation: false\n')
+    },
+    {
+      name: 'nested false cannot override a direct true',
+      mutate: rewritePolicy('policy:\n  allow_implicit_invocation: true\n  nested:\n    allow_implicit_invocation: false\n')
+    },
+    {
+      name: 'nested false read before a direct true',
+      mutate: rewritePolicy('policy:\n  nested:\n    allow_implicit_invocation: false\n  allow_implicit_invocation: true\n')
+    },
+    {
+      name: 'policy block is a sequence, not a mapping',
+      mutate: rewritePolicy('policy:\n  - allow_implicit_invocation: false\n')
+    },
+    { name: 'tab indentation', mutate: rewritePolicy('policy:\n\tallow_implicit_invocation: false\n') },
+    { name: 'quoted string value', mutate: rewritePolicy('policy:\n  allow_implicit_invocation: "false"\n') }
+  ];
+
+  for (const testCase of invocationPolicyCases) {
+    assert.throws(
+      () => validateGeneratedPlan('codex', corruptedSpecSkill(testCase.mutate)),
+      (error) => error && error.code === 'ERR_CODEX_INVOCATION_POLICY_PLAN',
+      `validateGeneratedPlan must fail closed for: ${testCase.name}`
+    );
+  }
+
+  // Shapes that genuinely set policy.allow_implicit_invocation must still pass.
+  const acceptedPolicyCases = [
+    { name: 'sibling block before policy', content: 'interface:\n  display_name: "drfx"\n\npolicy:\n  allow_implicit_invocation: false\n' },
+    { name: 'nested sibling key before the direct key', content: 'policy:\n  nested:\n    x: 1\n  allow_implicit_invocation: false\n' },
+    { name: 'four-space child indent', content: 'policy:\n    allow_implicit_invocation: false\n' }
+  ];
+
+  for (const testCase of acceptedPolicyCases) {
+    assert.doesNotThrow(
+      () => validateGeneratedPlan('codex', corruptedSpecSkill(rewritePolicy(testCase.content))),
+      `validateGeneratedPlan must accept: ${testCase.name}`
+    );
+  }
 
   const cases = [
     { name: 'missing SKILL.md', entries: corruptedSpecSkill(dropFile('SKILL.md')) },
@@ -1647,12 +1733,18 @@ test('validateGeneratedPlan fails closed when a Codex copied-shared-source plan 
     );
   }
 
-  // A directory plan that is not flagged as copied-shared-source must be skipped, not validated.
+  // Embedded-shared-source plans still require invocation policy metadata, but skip copied-source validation.
   assert.doesNotThrow(() => validateGeneratedPlan('codex', [{
     kind: 'directory',
     routeName: 'review-fix-spec',
     requiresOwnedSharedSource: false,
-    files: [{ relativePath: 'SKILL.md', content: '# embedded' }]
+    files: [
+      { relativePath: 'SKILL.md', content: '# embedded' },
+      {
+        relativePath: path.join('agents', 'openai.yaml'),
+        content: 'policy:\n  allow_implicit_invocation: false\n'
+      }
+    ]
   }]));
 
   // A copied-shared-source flag on a non-directory plan must also fail closed.

@@ -67,6 +67,14 @@ drfx install --platform claude                # a single platform
 - `gemini`: command TOML files under `~/.gemini/commands`. Gemini routes are advisory-only.
 - `opencode`: command files under `~/.config/opencode/commands`.
 
+The explicit-invocation policy is stored in the generated Claude and Codex artifacts. If those routes were installed by an earlier drfx version, upgrade them by rerunning:
+
+```bash
+drfx install --platform codex,claude
+```
+
+Upgrading the npm package alone does not rewrite artifacts that are already installed.
+
 Report what is installed per platform:
 
 ```bash
@@ -98,57 +106,83 @@ review-fix-code   source scope file set
 review-fix-r2p    r2p requirement-plan review
 ```
 
+All seven routes must be invoked explicitly in agent input:
+
+```text
+Codex:                          $review-fix-*
+Claude Code / Gemini / opencode: /review-fix-*
+```
+
+The leading `$` is the literal Codex skill prefix, not a shell prompt.
+
+How the explicit form is enforced differs by platform:
+
+- `claude` and `codex` carry generated metadata that switches model-initiated route selection off (`disable-model-invocation: true` in the command frontmatter; `policy.allow_implicit_invocation: false` in `agents/openai.yaml`). An ordinary request such as `fix this bug`, or a routine review or debugging request, does not start a drfx route.
+- `gemini` and `opencode` install user-invoked custom commands and expose no equivalent switch, so the explicit `/review-fix-*` form is the only way to reach a route on those platforms.
+
+Once a route is explicitly invoked, its arguments and defaults are unchanged. In particular, invoking `review-fix-code` without `scope=` still reviews the whole project.
+
 The route name selects the review target. Document routes: do not pass `type=`. Code routes (`review-fix-pr`, `review-fix-code`): do not pass `target=`, `ref=`, `strict`, `normal`, `assurance=`, or `ledger=`.
 
 ## Quick Start
 
-Review and automatically fix a SPEC document on Codex, Claude Code, or opencode:
+Review and automatically fix a SPEC document on Codex (the leading `$` is the literal skill prefix):
 
 ```text
-review-fix-spec docs/spec.md
+$review-fix-spec docs/spec.md
 ```
+
+On Claude Code or opencode, use the slash-command form:
+
+```text
+/review-fix-spec docs/spec.md
+```
+
+Gemini also uses `/review-fix-*`, but its routes are advisory read-only. The remaining examples use slash-command syntax; on Codex, replace the leading `/` with `$`.
 
 A bare path is shorthand for `target=<path>`. The full form remains supported:
 
 ```text
-review-fix-spec target=docs/spec.md
+/review-fix-spec target=docs/spec.md
 ```
 
 Review without editing, optionally with reference documents:
 
 ```text
-review-fix-design docs/design.md read-only
-review-fix-plan docs/plan.md ref=docs/spec.md ref=docs/design.md
+/review-fix-design docs/design.md read-only
+/review-fix-plan docs/plan.md ref=docs/spec.md ref=docs/design.md
 ```
 
 Run strict review-and-fix, or a bounded repair loop:
 
 ```text
-review-fix-plan docs/plan.md review-and-fix strict guard=git
-review-fix-plan docs/plan.md rounds=3
+/review-fix-plan docs/plan.md review-and-fix strict guard=git
+/review-fix-plan docs/plan.md rounds=3
 ```
 
 Review a pull request diff (local git only, no fetch):
 
 ```text
-review-fix-pr base=main
-review-fix-pr base=main read-only
-review-fix-pr base=main guard=snapshot
-review-fix-pr base=main rounds=2
-review-fix-pr base=main resume
+/review-fix-pr base=main
+/review-fix-pr base=main read-only
+/review-fix-pr base=main guard=snapshot
+/review-fix-pr base=main rounds=2
+/review-fix-pr base=main resume
 ```
 
 Review the whole project root (`scope=` omitted means whole project), or scope it to one or more directories or files. A whole-root review runs in a single pass within a budget of 300 files or 1,500,000 bytes (counted after all exclusions); a larger project is reviewed as a partitioned project review, or use `scope=<path>` or a project-root `.drfxignore` file to keep it a single pass:
 
 ```text
-review-fix-code
-review-fix-code scope=lib scope=test
-review-fix-code scope=lib read-only
-review-fix-code scope=lib guard=snapshot
-review-fix-code scope=lib resume
+/review-fix-code
+/review-fix-code scope=lib scope=test
+/review-fix-code scope=lib read-only
+/review-fix-code scope=lib guard=snapshot
+/review-fix-code scope=lib resume
 ```
 
 ## Invocation Syntax
+
+The signatures below omit the platform invocation prefix and show route arguments only. Prepend `$` on Codex or `/` on Claude Code, Gemini, and opencode.
 
 ### Document routes (review-fix-spec / plan / design / doc)
 

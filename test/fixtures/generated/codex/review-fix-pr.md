@@ -1,6 +1,6 @@
 ---
 name: review-fix-pr
-description: Review and fix PR diffs through the V2 review-fix loop coordinator route.
+description: Review and fix PR diffs through the V2 review-fix loop coordinator route. Explicit invocation only — run `$review-fix-pr`.
 ---
 
 # review-fix-pr

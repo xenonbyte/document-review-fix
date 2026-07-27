@@ -1,6 +1,6 @@
 ---
 name: review-fix-doc
-description: Review and fix COMMON documents through the V2 review-fix loop coordinator route.
+description: Review and fix COMMON documents through the V2 review-fix loop coordinator route. Explicit invocation only — run `$review-fix-doc`.
 ---
 
 # review-fix-doc

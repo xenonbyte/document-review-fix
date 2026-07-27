@@ -1,6 +1,6 @@
 ---
 name: review-fix-plan
-description: Review and fix PLAN documents through the V2 review-fix loop coordinator route.
+description: Review and fix PLAN documents through the V2 review-fix loop coordinator route. Explicit invocation only — run `$review-fix-plan`.
 ---
 
 # review-fix-plan

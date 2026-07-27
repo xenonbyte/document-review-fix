@@ -1,6 +1,6 @@
 ---
 name: review-fix-design
-description: Review and fix DESIGN documents through the V2 review-fix loop coordinator route.
+description: Review and fix DESIGN documents through the V2 review-fix loop coordinator route. Explicit invocation only — run `$review-fix-design`.
 ---
 
 # review-fix-design

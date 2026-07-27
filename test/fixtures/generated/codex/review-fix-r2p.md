@@ -1,6 +1,6 @@
 ---
 name: review-fix-r2p
-description: Review and fix r2p requirement plans (07-plan.md) through the V2 review-fix loop coordinator route.
+description: Review and fix r2p requirement plans (07-plan.md) through the V2 review-fix loop coordinator route. Explicit invocation only — run `$review-fix-r2p`.
 ---
 
 # review-fix-r2p

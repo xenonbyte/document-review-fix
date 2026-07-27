@@ -288,10 +288,10 @@ test('both READMEs include a PR review example with base=', () => {
 test('both READMEs include a whole-project CODE root review example (no scope=)', () => {
   const en = read('README.md');
   const zh = read('README.zh-CN.md');
-  // Whole-project review is `review-fix-code` with NO scope= token. Match the bare
-  // command on its own line so a `review-fix-code scope=...` form cannot satisfy it.
-  assert.match(en, /^review-fix-code\s*$/m);
-  assert.match(zh, /^review-fix-code\s*$/m);
+  // The examples use the slash-command form and document Codex's `$` prefix separately.
+  // Match the explicit command on its own line so a scoped form cannot satisfy it.
+  assert.match(en, /^\/review-fix-code\s*$/m);
+  assert.match(zh, /^\/review-fix-code\s*$/m);
 });
 
 test('both READMEs include a scoped CODE review example (scope=)', () => {

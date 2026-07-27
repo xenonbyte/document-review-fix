@@ -1,6 +1,6 @@
 ---
 name: review-fix-spec
-description: Review and fix SPEC documents through the shared review-fix loop workflow.
+description: Review and fix SPEC documents through the shared review-fix loop workflow. Explicit invocation only — run `$review-fix-spec`.
 ---
 
 # review-fix-spec

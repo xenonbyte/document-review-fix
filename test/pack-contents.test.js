@@ -20,6 +20,16 @@ function packTopLevelEntries(files) {
   return new Set(files.map((p) => (p.includes('/') ? `${p.split('/')[0]}/` : p)));
 }
 
+const ROUTE_NAMES = [
+  'review-fix-spec',
+  'review-fix-plan',
+  'review-fix-design',
+  'review-fix-doc',
+  'review-fix-pr',
+  'review-fix-code',
+  'review-fix-r2p'
+];
+
 test('npm pack ships exactly the runtime whitelist and no tests', () => {
   const tops = packTopLevelEntries(packFiles());
   const expected = [
@@ -35,6 +45,19 @@ test('npm pack ships exactly the runtime whitelist and no tests', () => {
   ];
   assert.deepEqual([...tops].sort(), expected);
   assert.equal(tops.has('test/'), false);
+});
+
+// The generated Codex policy is rendered from templates/codex-openai.yaml at install
+// time, and the source descriptors under skills/ carry their own copy. Both must ship,
+// or an install (or a hand-copied descriptor) silently falls back to Codex's
+// allow_implicit_invocation default of true.
+test('npm pack ships the explicit-invocation policy source and every source skill copy', () => {
+  const files = new Set(packFiles());
+  assert.equal(files.has('templates/codex-openai.yaml'), true, 'npm pack must ship templates/codex-openai.yaml');
+  for (const routeName of ROUTE_NAMES) {
+    const required = `skills/${routeName}/agents/openai.yaml`;
+    assert.equal(files.has(required), true, `npm pack must ship ${required}`);
+  }
 });
 
 test('npm pack ships the code-route skills, rubrics, and template fragments', () => {

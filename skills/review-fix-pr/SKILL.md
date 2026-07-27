@@ -1,6 +1,6 @@
 ---
 name: review-fix-pr
-description: Review and fix a PR diff (the base..HEAD changed file set) through the shared review-fix loop workflow.
+description: Review and fix a PR diff (the base..HEAD changed file set) through the shared review-fix loop workflow. Explicit invocation only — run `$review-fix-pr`.
 ---
 
 # review-fix-pr

@@ -1,6 +1,6 @@
 ---
 name: review-fix-doc
-description: Review and fix COMMON documents through the shared review-fix loop workflow.
+description: Review and fix COMMON documents through the shared review-fix loop workflow. Explicit invocation only — run `$review-fix-doc`.
 ---
 
 # review-fix-doc

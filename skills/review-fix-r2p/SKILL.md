@@ -1,6 +1,6 @@
 ---
 name: review-fix-r2p
-description: Review and fix an r2p requirement plan (07-plan.md) through the shared review-fix loop workflow.
+description: Review and fix an r2p requirement plan (07-plan.md) through the shared review-fix loop workflow. Explicit invocation only — run `$review-fix-r2p`.
 ---
 
 # review-fix-r2p

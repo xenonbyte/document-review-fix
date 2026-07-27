@@ -1,6 +1,6 @@
 ---
 name: review-fix-code
-description: Review and fix source scopes through the V2 review-fix loop coordinator route.
+description: Review and fix source scopes through the V2 review-fix loop coordinator route. Explicit invocation only — run `$review-fix-code`.
 ---
 
 # review-fix-code

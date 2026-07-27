@@ -18,6 +18,7 @@ const {
 const ROOT = path.join(__dirname, '..');
 const SNAPSHOT_VERSION = '0.0.0-snapshot';
 const ROUTE_PLATFORMS = ['claude', 'codex', 'gemini', 'opencode'];
+const CODEX_INVOCATION_POLICY = 'policy:\n  allow_implicit_invocation: false\n';
 const GENERATED_SHELL_BASELINE_BYTES = Object.freeze({
   claude: Object.freeze({
     'review-fix-spec': 21775,
@@ -59,84 +60,84 @@ const GENERATED_SHELL_BASELINE_BYTES = Object.freeze({
 const CODEX_SHARED_DEDUP_EXPECTED_MEASUREMENT = Object.freeze({
   routes: Object.freeze({
     'review-fix-spec': Object.freeze({
-      routeBytes: 84963,
+      routeBytes: 85016,
       embeddedSharedBytes: 62725,
       copiedSharedBytes: 62427,
       duplicateBytes: 62427,
-      copiedRouteBytes: 23444,
+      copiedRouteBytes: 23497,
       shrinkBytes: 61519,
-      shrinkPercent: 72.41,
+      shrinkPercent: 72.36,
       wouldGrow: false
     }),
     'review-fix-plan': Object.freeze({
-      routeBytes: 85271,
+      routeBytes: 85324,
       embeddedSharedBytes: 63033,
       copiedSharedBytes: 62735,
       duplicateBytes: 62735,
-      copiedRouteBytes: 23444,
+      copiedRouteBytes: 23497,
       shrinkBytes: 61827,
-      shrinkPercent: 72.51,
+      shrinkPercent: 72.46,
       wouldGrow: false
     }),
     'review-fix-design': Object.freeze({
-      routeBytes: 85073,
+      routeBytes: 85128,
       embeddedSharedBytes: 62787,
       copiedSharedBytes: 62487,
       duplicateBytes: 62487,
-      copiedRouteBytes: 23494,
+      copiedRouteBytes: 23549,
       shrinkBytes: 61579,
-      shrinkPercent: 72.38,
+      shrinkPercent: 72.34,
       wouldGrow: false
     }),
     'review-fix-doc': Object.freeze({
-      routeBytes: 81770,
+      routeBytes: 81822,
       embeddedSharedBytes: 59547,
       copiedSharedBytes: 59288,
       duplicateBytes: 59288,
-      copiedRouteBytes: 23402,
+      copiedRouteBytes: 23454,
       shrinkBytes: 58368,
-      shrinkPercent: 71.38,
+      shrinkPercent: 71.34,
       wouldGrow: false
     }),
     'review-fix-pr': Object.freeze({
-      routeBytes: 82112,
+      routeBytes: 82163,
       embeddedSharedBytes: 60052,
       copiedSharedBytes: 59797,
       duplicateBytes: 59797,
-      copiedRouteBytes: 23235,
+      copiedRouteBytes: 23286,
       shrinkBytes: 58877,
-      shrinkPercent: 71.7,
+      shrinkPercent: 71.66,
       wouldGrow: false
     }),
     'review-fix-code': Object.freeze({
-      routeBytes: 93097,
+      routeBytes: 93150,
       embeddedSharedBytes: 63652,
       copiedSharedBytes: 63395,
       duplicateBytes: 63395,
-      copiedRouteBytes: 30622,
+      copiedRouteBytes: 30675,
       shrinkBytes: 62475,
-      shrinkPercent: 67.11,
+      shrinkPercent: 67.07,
       wouldGrow: false
     }),
     'review-fix-r2p': Object.freeze({
-      routeBytes: 84105,
+      routeBytes: 84157,
       embeddedSharedBytes: 63404,
       copiedSharedBytes: 62735,
       duplicateBytes: 62735,
-      copiedRouteBytes: 21907,
+      copiedRouteBytes: 21959,
       shrinkBytes: 62198,
-      shrinkPercent: 73.95,
+      shrinkPercent: 73.91,
       wouldGrow: false
     })
   }),
   totals: Object.freeze({
-    routeBytes: 596391,
+    routeBytes: 596760,
     embeddedSharedBytes: 435200,
     copiedSharedBytes: 432864,
     duplicateBytes: 432864
   }),
   largestShellShrinkBytes: 62475,
-  largestShellShrinkPercent: 67.11,
+  largestShellShrinkPercent: 67.07,
   anyCodexRouteWouldGrow: false,
   gateEntered: true
 });
@@ -1739,6 +1740,89 @@ test('generatePlatformFiles generates all seven routes (document + pr + code + r
   }
 });
 
+test('all generated Claude routes disable implicit model invocation', () => {
+  for (const route of listRoutes()) {
+    const rendered = renderPlatformRoute('claude', route.routeName, { packageVersion: '0.0.0-test' });
+    const frontmatter = rendered.match(/^---\n([\s\S]*?)\n---\n/);
+
+    assert.ok(frontmatter, `claude:${route.routeName} must start with YAML frontmatter`);
+    assert.match(
+      frontmatter[1],
+      new RegExp(`^description: Run /${route.routeName}\\b`, 'm'),
+      `claude:${route.routeName} must have a route-specific description`
+    );
+    assert.match(
+      frontmatter[1],
+      /^disable-model-invocation: true$/m,
+      `claude:${route.routeName} must disable implicit model invocation`
+    );
+  }
+});
+
+test('all generated Codex skills carry exact explicit-only agent policy metadata', () => {
+  const metadataPath = path.join('agents', 'openai.yaml');
+  const skills = generatePlatformFiles('codex', { packageVersion: '0.0.0-test' });
+
+  for (const skill of skills) {
+    const metadata = skill.files.find((file) => file.relativePath === metadataPath);
+    const skillMarkdown = skill.files.find((file) => file.relativePath === 'SKILL.md');
+
+    assert.ok(metadata, `codex:${skill.routeName} must generate ${metadataPath}`);
+    assert.equal(
+      metadata.content,
+      CODEX_INVOCATION_POLICY,
+      `codex:${skill.routeName} must disable implicit invocation`
+    );
+    assert.match(
+      skillMarkdown.content,
+      /^description: .*Explicit invocation only .*$/m,
+      `codex:${skill.routeName} description must defensively mark the skill explicit-only`
+    );
+    assert.ok(
+      skillMarkdown.content.includes(`\`$${skill.routeName}\``),
+      `codex:${skill.routeName} description must name its explicit invocation`
+    );
+  }
+});
+
+// A YAML plain scalar cannot contain ": ", so a colon in a generated description
+// would silently break the frontmatter that carries the invocation policy.
+test('generated Claude and Codex frontmatter descriptions stay YAML-plain-scalar safe', () => {
+  for (const platform of ['claude', 'codex']) {
+    for (const route of listRoutes()) {
+      const rendered = renderPlatformRoute(platform, route.routeName, { packageVersion: '0.0.0-test' });
+      const description = rendered.match(/^description: (.*)$/m);
+      assert.ok(description, `${platform}:${route.routeName} must declare a frontmatter description`);
+      assert.doesNotMatch(
+        description[1],
+        /: /,
+        `${platform}:${route.routeName} description must not contain ": " (breaks YAML plain scalars)`
+      );
+    }
+  }
+});
+
+// skills/ descriptors ship in the npm package at the same layout Codex installs
+// (`<skill>/agents/openai.yaml`), so a hand-copied descriptor must carry the same
+// policy as a generated route rather than falling back to Codex's default.
+test('source skill descriptors carry the same explicit-only policy as generated routes', () => {
+  assert.equal(read(path.join('templates', 'codex-openai.yaml')), CODEX_INVOCATION_POLICY);
+
+  for (const route of listRoutes()) {
+    const skillDir = path.join('skills', route.routeName);
+    assert.equal(
+      read(path.join(skillDir, 'agents', 'openai.yaml')),
+      CODEX_INVOCATION_POLICY,
+      `${skillDir} must disable implicit invocation`
+    );
+    assert.match(
+      read(path.join(skillDir, 'SKILL.md')),
+      new RegExp(`^description: .*Explicit invocation only .*\`\\$${route.routeName}\``, 'm'),
+      `${skillDir} description must name its explicit invocation`
+    );
+  }
+});
+
 // ---------------------------------------------------------------------------
 // PR and CODE rubric content assertions
 // ---------------------------------------------------------------------------
@@ -1842,7 +1926,10 @@ test('generated code routes use self-contained PR/CODE rubrics without embedding
 
 test('generated code routes do not delegate to platform review commands', () => {
   for (const output of generatedCodeRoutes()) {
-    assert.doesNotMatch(output.body, /\/review\b/, `${output.platform}:${output.routeName} must not mention /review`);
+    // `(?!\w)` skips path/word continuations such as `shared/prompts/reviewer.md`;
+    // `(?!-fix-)` exempts only drfx's own `/review-fix-*` routes, which the Claude
+    // frontmatter names. A `/review` or `/review-<other>` delegation still fails.
+    assert.doesNotMatch(output.body, /\/review(?!\w)(?!-fix-)/, `${output.platform}:${output.routeName} must not mention /review`);
   }
 });
 

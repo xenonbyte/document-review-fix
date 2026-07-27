@@ -1,6 +1,6 @@
 ---
 name: review-fix-design
-description: Review and fix DESIGN documents through the shared review-fix loop workflow.
+description: Review and fix DESIGN documents through the shared review-fix loop workflow. Explicit invocation only — run `$review-fix-design`.
 ---
 
 # review-fix-design
