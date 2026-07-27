@@ -7,6 +7,7 @@ const test = require('node:test');
 const { renderPlatformRoute, generatePlatformFiles } = require('../lib/generator');
 const { buildFinalResponseChecklist } = require('../lib/final-response');
 const { listDocumentRoutes, listRoutes } = require('../lib/routes');
+const { parseYamlBlockMapping } = require('../lib/yaml-block-mapping');
 const {
   maskEmbeddedSharedContent,
   readSnapshot,
@@ -18,7 +19,12 @@ const {
 const ROOT = path.join(__dirname, '..');
 const SNAPSHOT_VERSION = '0.0.0-snapshot';
 const ROUTE_PLATFORMS = ['claude', 'codex', 'gemini', 'opencode'];
-const CODEX_INVOCATION_POLICY = 'policy:\n  allow_implicit_invocation: false\n';
+// templates/codex-openai.yaml is the single source for the Codex invocation policy.
+// Derive the expected bytes from it so editing the template (adding guidance comments,
+// for example) cannot drift from the generated and source-descriptor copies unnoticed;
+// the value the file actually declares is asserted semantically below.
+const CODEX_INVOCATION_POLICY_PATH = path.join('templates', 'codex-openai.yaml');
+const CODEX_INVOCATION_POLICY = fs.readFileSync(path.join(ROOT, CODEX_INVOCATION_POLICY_PATH), 'utf8');
 const GENERATED_SHELL_BASELINE_BYTES = Object.freeze({
   claude: Object.freeze({
     'review-fix-spec': 21775,
@@ -1806,7 +1812,17 @@ test('generated Claude and Codex frontmatter descriptions stay YAML-plain-scalar
 // (`<skill>/agents/openai.yaml`), so a hand-copied descriptor must carry the same
 // policy as a generated route rather than falling back to Codex's default.
 test('source skill descriptors carry the same explicit-only policy as generated routes', () => {
-  assert.equal(read(path.join('templates', 'codex-openai.yaml')), CODEX_INVOCATION_POLICY);
+  // The template is the source the other copies are compared against, so assert what it
+  // MEANS (not its bytes) with the same reader the installer gates on.
+  const template = parseYamlBlockMapping(CODEX_INVOCATION_POLICY);
+  assert.ok(template, `${CODEX_INVOCATION_POLICY_PATH} must parse as a supported YAML block mapping`);
+  const policy = template.get('policy');
+  assert.equal(policy && policy.kind, 'mapping', `${CODEX_INVOCATION_POLICY_PATH} must declare a policy block`);
+  assert.deepEqual(
+    policy.value.get('allow_implicit_invocation'),
+    { kind: 'scalar', style: 'plain', value: 'false' },
+    `${CODEX_INVOCATION_POLICY_PATH} must disable implicit invocation`
+  );
 
   for (const route of listRoutes()) {
     const skillDir = path.join('skills', route.routeName);

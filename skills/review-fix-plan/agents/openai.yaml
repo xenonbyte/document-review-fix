@@ -1,2 +1,15 @@
+# Copied verbatim into every generated Codex skill as `<skill>/agents/openai.yaml`,
+# and kept byte-identical in each `skills/review-fix-*/agents/` source descriptor.
+#
+# Codex treats `policy.allow_implicit_invocation` as `true` when the key is absent, so
+# `drfx install` validates this file with `lib/yaml-block-mapping.js` and refuses to
+# install when the setting is missing or permissive.
+#
+# That validator accepts only plain block mappings: comments, blank lines, nested
+# mappings, and quoted scalars are fine, but sequences (`- item`), flow style
+# (`{a: b}`, `[a, b]`), document markers (`---`, `...`), tab indentation, anchors, and
+# duplicate keys make the whole file unreadable and fail the install. The OpenAI sample
+# `dependencies.tools` block is a sequence — teach the validator sequences before
+# adding one here.
 policy:
   allow_implicit_invocation: false

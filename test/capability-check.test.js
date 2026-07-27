@@ -809,10 +809,12 @@ test('install writes manifests and installer-default descriptors into isolated h
   ]) {
     const policyPath = path.join(platformRoots.codexSkills, routeName, 'agents', 'openai.yaml');
     assert.equal(fs.existsSync(policyPath), true, `${routeName} Codex policy metadata must be installed`);
+    // Compare against the shipped source rather than a second literal, so the template
+    // stays the only place the policy bytes are written.
     assert.equal(
       fs.readFileSync(policyPath, 'utf8'),
-      'policy:\n  allow_implicit_invocation: false\n',
-      `${routeName} Codex policy metadata must disable implicit invocation`
+      fs.readFileSync(path.join(__dirname, '..', 'templates', 'codex-openai.yaml'), 'utf8'),
+      `${routeName} Codex policy metadata must match templates/codex-openai.yaml`
     );
   }
   assert.equal(fs.existsSync(path.join(platformRoots.gemini, 'review-fix-spec.toml')), true);
@@ -1686,6 +1688,22 @@ test('validateGeneratedPlan fails closed when a Codex generated skill plan is in
       name: 'policy block is a sequence, not a mapping',
       mutate: rewritePolicy('policy:\n  - allow_implicit_invocation: false\n')
     },
+    {
+      name: 'malformed YAML after a disabling policy',
+      mutate: rewritePolicy('policy:\n  allow_implicit_invocation: false\ndependencies: [\n')
+    },
+    {
+      name: 'duplicate top-level policy key',
+      mutate: rewritePolicy(
+        'policy:\n  allow_implicit_invocation: false\npolicy:\n  allow_implicit_invocation: true\n'
+      )
+    },
+    {
+      name: 'duplicate direct policy key',
+      mutate: rewritePolicy(
+        'policy:\n  allow_implicit_invocation: false\n  allow_implicit_invocation: true\n'
+      )
+    },
     { name: 'tab indentation', mutate: rewritePolicy('policy:\n\tallow_implicit_invocation: false\n') },
     { name: 'quoted string value', mutate: rewritePolicy('policy:\n  allow_implicit_invocation: "false"\n') }
   ];
@@ -1701,14 +1719,59 @@ test('validateGeneratedPlan fails closed when a Codex generated skill plan is in
   // Shapes that genuinely set policy.allow_implicit_invocation must still pass.
   const acceptedPolicyCases = [
     { name: 'sibling block before policy', content: 'interface:\n  display_name: "drfx"\n\npolicy:\n  allow_implicit_invocation: false\n' },
+    { name: 'sibling block after policy', content: 'policy:\n  allow_implicit_invocation: false\n\ninterface:\n  display_name: "drfx"\n' },
     { name: 'nested sibling key before the direct key', content: 'policy:\n  nested:\n    x: 1\n  allow_implicit_invocation: false\n' },
-    { name: 'four-space child indent', content: 'policy:\n    allow_implicit_invocation: false\n' }
+    { name: 'four-space child indent', content: 'policy:\n    allow_implicit_invocation: false\n' },
+    { name: 'CRLF line endings', content: 'policy:\r\n  allow_implicit_invocation: false\r\n' }
   ];
 
   for (const testCase of acceptedPolicyCases) {
     assert.doesNotThrow(
       () => validateGeneratedPlan('codex', corruptedSpecSkill(rewritePolicy(testCase.content))),
       `validateGeneratedPlan must accept: ${testCase.name}`
+    );
+  }
+
+  // Comments and blank lines are the documented way to explain the constraint inside
+  // templates/codex-openai.yaml itself, so they must not break the gate.
+  assert.doesNotThrow(() => validateGeneratedPlan(
+    'codex',
+    corruptedSpecSkill(rewritePolicy('# why this exists\n\npolicy:\n  # keep explicit\n  allow_implicit_invocation: false # not negotiable\n'))
+  ));
+
+  // An unreadable document and a readable-but-permissive one are different operator
+  // problems. A single shared message would point at a policy line that may already be
+  // correct — as it is when an unsupported sequence appears elsewhere in the file.
+  const defectMessages = [
+    {
+      name: 'unsupported YAML shape',
+      content: 'policy:\n  allow_implicit_invocation: false\ndependencies:\n  tools:\n    - type: "mcp"\n',
+      expected: /is not a supported YAML block mapping/
+    },
+    {
+      name: 'no policy block',
+      content: 'interface:\n  display_name: "drfx"\n',
+      expected: /has no top-level `policy:` block mapping/
+    },
+    {
+      name: 'field absent from the policy block',
+      content: 'policy:\n  nested:\n    allow_implicit_invocation: false\n',
+      expected: /does not set `allow_implicit_invocation` as a direct child/
+    },
+    {
+      name: 'permissive value',
+      content: 'policy:\n  allow_implicit_invocation: true\n',
+      expected: /must set policy\.allow_implicit_invocation to the plain value false/
+    }
+  ];
+
+  for (const testCase of defectMessages) {
+    assert.throws(
+      () => validateGeneratedPlan('codex', corruptedSpecSkill(rewritePolicy(testCase.content))),
+      (error) => error
+        && error.code === 'ERR_CODEX_INVOCATION_POLICY_PLAN'
+        && testCase.expected.test(error.message),
+      `validateGeneratedPlan must report the actual defect for: ${testCase.name}`
     );
   }
 
